@@ -1,20 +1,33 @@
-use std::io::Read;
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
-use anyhow::Context;
+use log::{debug, info};
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::process::{Command, Stdio};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
-    let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 8080);
-    let mut stream = TcpStream::connect(address).context("Failed to connect to server")?;
+    let address = "127.0.0.1:8080";
 
-    log::info!("Connected to server at {address}");
+    info!("Connecting to {}", address);
+    let mut stream = TcpStream::connect("127.0.0.1:8080").unwrap();
+    info!("Connected to the server!");
 
-    let mut buffer = [0; 128];
+    let mut ffplay = Command::new("ffplay")
+        .args("-fflags nobuffer -f mpegts -i -".split(' '))
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut ffplay_stdin = ffplay.stdin.take().unwrap();
+
+    let mut buf = vec![0u8; 65536];
     loop {
-        stream.read(&mut buffer).context("Failed to read data from server")?;
-        let message = String::from_utf8_lossy(&buffer);
-        log::info!("Received: {}", message);
+        let n = stream.read(&mut buf).unwrap();
+        if n == 0 {
+            break;
+        }
+        debug!("Received {} bytes", n);
+        ffplay_stdin.write_all(&buf[..n]).unwrap();
     }
 }
