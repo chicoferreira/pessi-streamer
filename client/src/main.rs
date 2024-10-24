@@ -14,7 +14,7 @@ async fn main() {
     info!("Connected to the server!");
 
     let mut ffplay = Command::new("ffplay")
-        .args("-fflags nobuffer -f mpegts -i -".split(' '))
+        .args("-fflags nobuffer -analyzeduration 100000 -probesize 500000 -f mpegts -i -".split(' '))
         .stdin(Stdio::piped())
         .spawn()
         .unwrap();
