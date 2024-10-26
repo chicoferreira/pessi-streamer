@@ -1,14 +1,18 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use serde::{Deserialize, Serialize};
+
+/// Client to Server packet
+#[derive(Serialize, Deserialize, Debug)]
+pub enum CSPacket {
+    /// Heartbeat packet to keep connection alive
+    Heartbeat,
+    /// Request to start a video
+    RequestVideo(String),
+    /// Request to stop a video
+    StopVideo(String),
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+#[derive(Serialize, Deserialize, Debug)]
+pub enum SCPacket {
+    /// A packet containing video data
+    VideoPacket(Vec<u8>),
 }
