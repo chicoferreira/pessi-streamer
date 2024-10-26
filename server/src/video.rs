@@ -1,24 +1,22 @@
 use ffmpeg_sidecar::child::FfmpegChild;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::version::ffmpeg_version;
-use log::{debug, info, trace};
+use log::{info};
 use tokio::net::UdpSocket;
 
-pub struct Video {
-    pub video_path: String,
-    ffmpeg_socket_read_task: tokio::task::JoinHandle<()>,
+pub struct VideoProcess {
     ffmpeg_child_process: FfmpegChild,
+    socket: UdpSocket,
 }
 
-impl Drop for Video {
+impl Drop for VideoProcess {
     fn drop(&mut self) {
         self.ffmpeg_child_process.kill().unwrap();
-        self.ffmpeg_socket_read_task.abort();
     }
 }
 
-impl Video {
-    pub async fn new_video_task(video_path: String) -> anyhow::Result<Video> {
+impl VideoProcess {
+    pub async fn new_video_process(video_path: &str) -> anyhow::Result<VideoProcess> {
         if !std::path::Path::new(&video_path).exists() {
             return Err(anyhow::anyhow!("Video file does not exist: {}", video_path));
         }
@@ -30,21 +28,15 @@ impl Video {
 
         let ffmpeg_child_process = launch_video_process(&video_path, format!("udp://{}", ffmpeg_socket_addr).as_str());
 
-        let ffmpeg_socket_read_task = tokio::spawn(Video::handle_ffmpeg_read_socket(ffmpeg_socket));
-
-        Ok(Video {
-            video_path: video_path.clone(),
-            ffmpeg_socket_read_task,
+        Ok(VideoProcess {
             ffmpeg_child_process,
+            socket: ffmpeg_socket,
         })
     }
 
-    async fn handle_ffmpeg_read_socket(ffmpeg_socket: UdpSocket) {
+    pub async fn recv(&self) -> std::io::Result<Vec<u8>> {
         let mut buf = vec![0u8; 16384];
-        loop {
-            let n = ffmpeg_socket.recv(&mut buf).await.unwrap();
-            trace!("Received {} bytes from ffmpeg", n);
-        }
+        self.socket.recv(&mut buf).await.map(|n| buf[..n].to_vec())
     }
 }
 

@@ -8,7 +8,7 @@ async fn main() {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
-    socket.connect((Ipv4Addr::LOCALHOST, 8001)).await.unwrap();
+    socket.connect((Ipv4Addr::LOCALHOST, common::SERVER_PORT)).await.unwrap();
 
     let packet = CSPacket::RequestVideo("video.mp4".to_string());
     let packet = bincode::serialize(&packet).unwrap();
