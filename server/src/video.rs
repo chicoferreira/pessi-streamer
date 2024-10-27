@@ -1,7 +1,7 @@
 use ffmpeg_sidecar::child::FfmpegChild;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::version::ffmpeg_version;
-use log::{info};
+use log::info;
 use tokio::net::UdpSocket;
 
 pub struct VideoProcess {

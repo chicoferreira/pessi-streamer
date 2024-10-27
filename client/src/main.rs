@@ -1,6 +1,8 @@
+use std::io::Write;
 use common::{CSPacket, SCPacket};
-use log::info;
+use log::{debug, info, trace};
 use std::net::Ipv4Addr;
+use std::process::{Command, Stdio};
 use tokio::net::UdpSocket;
 
 #[tokio::main]
@@ -15,6 +17,14 @@ async fn main() {
 
     socket.send(&packet).await.unwrap();
 
+    let mut ffplay = Command::new("ffplay")
+        .args("-fflags nobuffer -analyzeduration 200000 -probesize 1000000 -f mpegts -i -".split(' '))
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut ffplay_stdin = ffplay.stdin.take().unwrap();
+
     let mut buf = [0u8; 16384];
     loop {
         let n = socket.recv(&mut buf).await.unwrap();
@@ -22,7 +32,9 @@ async fn main() {
 
         match packet {
             SCPacket::VideoPacket(data) => {
-                info!("Received video packet with {} bytes", data.len());
+                trace!("Received video packet with {} bytes", data.len());
+                ffplay_stdin.write_all(&data).unwrap();
+                ffplay_stdin.flush().unwrap();
             }
         }
     }
