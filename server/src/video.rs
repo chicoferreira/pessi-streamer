@@ -34,9 +34,8 @@ impl VideoProcess {
         })
     }
 
-    pub async fn recv(&self) -> std::io::Result<Vec<u8>> {
-        let mut buf = vec![0u8; 16384];
-        self.socket.recv(&mut buf).await.map(|n| buf[..n].to_vec())
+    pub async fn recv(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.socket.recv(buf).await
     }
 }
 
