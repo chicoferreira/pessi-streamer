@@ -43,7 +43,6 @@ pub fn launch_video_process(video_path: &str, send_to_path: &str) -> FfmpegChild
     let string = ffmpeg_version().unwrap();
     info!("Starting ffmpeg process (version: {})", string);
 
-    // todo: pre-encode video before stream
     // todo: auto detect gpu acceleration
 
     FfmpegCommand::new()
@@ -52,7 +51,8 @@ pub fn launch_video_process(video_path: &str, send_to_path: &str) -> FfmpegChild
         .arg("-stream_loop").arg("-1")
         .hwaccel("auto")
         .input(video_path)
-        .codec_video("h264")
+        .codec_video("h264_nvenc")
+        .arg("-b:v").arg("8M")
         .codec_audio("aac")
         // send keyframes every 30 frames
         .arg("-g").arg("30")
