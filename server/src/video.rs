@@ -1,3 +1,6 @@
+use std::io::BufRead;
+use std::process::Command;
+use anyhow::Context;
 use ffmpeg_sidecar::child::FfmpegChild;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::version::ffmpeg_version;
@@ -26,7 +29,10 @@ impl VideoProcess {
         let ffmpeg_socket = UdpSocket::bind("127.0.0.1:0").await?;
         let ffmpeg_socket_addr = ffmpeg_socket.local_addr()?;
 
-        let ffmpeg_child_process = launch_video_process(&video_path, format!("udp://{}", ffmpeg_socket_addr).as_str());
+        let codec = auto_detect_codec().context("Failed to auto detect codec")?;
+        info!("Auto detected codec: {}", codec);
+
+        let ffmpeg_child_process = launch_video_process(&video_path, &format!("udp://{}", ffmpeg_socket_addr), &codec);
 
         Ok(VideoProcess {
             ffmpeg_child_process,
@@ -39,7 +45,31 @@ impl VideoProcess {
     }
 }
 
-pub fn launch_video_process(video_path: &str, send_to_path: &str) -> FfmpegChild {
+fn list_encoders() -> Vec<String> {
+    Command::new("ffmpeg")
+        .arg("-encoders")
+        .output()
+        .unwrap()
+        .stdout
+        .lines()
+        .map(|line| line.unwrap().trim().to_string())
+        .filter(|line| line.starts_with("V"))
+        .map(|line| line.split(' ').nth(1).unwrap().to_string())
+        .collect()
+}
+
+pub fn auto_detect_codec() -> Option<String> {
+    // ffmpeg -encoders
+
+    let encoder_list = list_encoders();
+
+    ["h264_videotoolbox", "h264_nvenc", "h264"]
+        .iter()
+        .find(|codec| encoder_list.contains(&codec.to_string()))
+        .map(|codec| codec.to_string())
+}
+
+pub fn launch_video_process(video_path: &str, send_to_path: &str, codec_video: &str) -> FfmpegChild {
     let string = ffmpeg_version().unwrap();
     info!("Starting ffmpeg process (version: {})", string);
 
@@ -51,7 +81,7 @@ pub fn launch_video_process(video_path: &str, send_to_path: &str) -> FfmpegChild
         .arg("-stream_loop").arg("-1")
         .hwaccel("auto")
         .input(video_path)
-        .codec_video("h264_nvenc")
+        .codec_video(codec_video)
         .arg("-b:v").arg("8M")
         .codec_audio("aac")
         // send keyframes every 30 frames
