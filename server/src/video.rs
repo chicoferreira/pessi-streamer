@@ -63,7 +63,7 @@ pub fn auto_detect_codec() -> Option<String> {
 
     let encoder_list = list_encoders();
 
-    ["h264_videotoolbox", "h264_nvenc", "h264"]
+    ["h264_videotoolbox", "h264_nvenc", "h264", "libx264"]
         .iter()
         .find(|codec| encoder_list.contains(&codec.to_string()))
         .map(|codec| codec.to_string())
