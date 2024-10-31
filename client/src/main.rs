@@ -1,14 +1,36 @@
 use std::io::Write;
-use common::{CSPacket, SCPacket};
-use log::{debug, info, trace};
+use common::{BNPacket, CSPacket, NBPacket, SCPacket};
+use log::{info, trace};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
-use tokio::net::UdpSocket;
+use tokio::net::{TcpStream, UdpSocket};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
+    // Bootstraper
+    let mut stream = TcpStream::connect(("localhost", common::BOOTSTRAPER_PORT))
+        .await
+        .expect("Failed to connect to bootstraper. Try running it first.");
+
+    let packet = NBPacket::RequestNeighbours;
+    let packet = bincode::serialize(&packet).unwrap();
+
+    stream.write_all(&packet).await.unwrap();
+
+    let mut buf = [0u8; 16384];
+    let n = stream.read(&mut buf).await.unwrap();
+    let packet: BNPacket = bincode::deserialize(&buf[..n]).unwrap();
+
+    match packet {
+        BNPacket::Neighbours(neighbours) => {
+            info!("Received neighbours: {:?}", neighbours);
+        }
+    }
+
+    // Server
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
     socket.connect((Ipv4Addr::LOCALHOST, common::SERVER_PORT)).await.unwrap();
 

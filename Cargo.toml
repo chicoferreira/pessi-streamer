@@ -1,9 +1,3 @@
 [workspace]
-members = [
-    "server",
-    "client",
-    "common"
-]
+members = ["server", "client", "bootstraper", "common"]
 resolver = "2"
-
-
