@@ -1,10 +1,10 @@
 use std::io::Write;
-use common::{BNPacket, CSPacket, NBPacket, SCPacket};
 use log::{info, trace};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
 use tokio::net::{TcpStream, UdpSocket};
+use common::packet::{BNPacket, CSPacket, NBPacket, SCPacket};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

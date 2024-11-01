@@ -1,5 +1,5 @@
 use crate::video::VideoProcess;
-use common::{CSPacket, SCPacket};
+use common::packet::{CSPacket, SCPacket};
 use log::{debug, info, trace};
 use std::collections::HashMap;
 use std::net::SocketAddr;

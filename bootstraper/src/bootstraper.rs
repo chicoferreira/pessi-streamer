@@ -1,9 +1,9 @@
-use common::{BNPacket, NBPacket};
 use log::{error, info};
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use common::packet::{BNPacket, NBPacket};
 
 #[derive(Deserialize)]
 pub struct Neighbours {
@@ -70,7 +70,7 @@ async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) ->
                     .cloned()
                     .unwrap_or_default();
 
-                let packet: BNPacket = BNPacket::Neighbours(neighbours_list);
+                let packet = BNPacket::Neighbours(neighbours_list);
 
                 match bincode::serialize(&packet) {
                     Ok(bytes) => stream.write_all(&bytes).await?,

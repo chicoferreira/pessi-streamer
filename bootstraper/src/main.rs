@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting bootstraper...");
 
-    let server_socket = TcpListener::bind((Ipv4Addr::UNSPECIFIED, common::BOOTSTRAPER_PORT))
+    let server_socket = TcpListener::bind((Ipv4Addr::new(127, 0, 0, 2), common::BOOTSTRAPER_PORT))
         .await
         .context("Failed to bind to server socket")?;
 
