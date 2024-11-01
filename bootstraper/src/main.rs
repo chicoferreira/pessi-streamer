@@ -1,7 +1,9 @@
-use crate::bootstraper::State;
-use tokio::net::TcpListener;
+use crate::bootstraper::{Neighbours, State};
+use anyhow::Context;
 use env_logger::Env;
 use log::info;
+use std::net::Ipv4Addr;
+use tokio::net::TcpListener;
 
 mod bootstraper;
 
@@ -11,13 +13,21 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting bootstraper...");
 
-    let server_socket = TcpListener::bind(("localhost", common::BOOTSTRAPER_PORT))
+    let server_socket = TcpListener::bind((Ipv4Addr::UNSPECIFIED, common::BOOTSTRAPER_PORT))
         .await
-        .expect("Failed to bind to server socket");
+        .context("Failed to bind to server socket")?;
 
-    let state = State::new(server_socket);
+    let neighbours = std::fs::read_to_string("topologies/neighbours.toml")
+        .context("Failed to read neighbours.toml")?;
 
-    bootstraper::run_server(state).await?;
+    let neighbours: Neighbours = toml::from_str(&*neighbours)
+        .context("Failed to parse neighbours.toml")?;
+
+    info!("Loaded {} neighbours information.", neighbours.len());
+
+    let state = State::new(neighbours);
+
+    bootstraper::run_server(state, server_socket).await?;
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ pub enum NBPacket {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum BNPacket {
     /// Response to RequestNeighbours
-    Neighbours(Vec<Ipv4Addr>),
+    Neighbours(Vec<IpAddr>),
 }
 
 /// Client to Server packet
