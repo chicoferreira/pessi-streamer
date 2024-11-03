@@ -1,9 +1,9 @@
 use crate::video::VideoProcess;
-use common::packet::{CSPacket, SCPacket, SNCPacket};
+use common::packet::{CSPacket, SCPacket};
+use dashmap::DashMap;
 use log::{debug, error, info, trace};
-use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 
@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 pub struct State {
     /// Map of video paths to interested subscribers
     /// todo: replace with dashmap
-    clients: Arc<RwLock<HashMap<String, Vec<SocketAddr>>>>,
+    clients: Arc<DashMap<String, Vec<SocketAddr>>>,
     clients_socket: Arc<UdpSocket>,
     neighbours: Arc<Vec<SocketAddr>>,
 }
@@ -20,14 +20,14 @@ impl State {
     pub fn new(clients_socket: UdpSocket, neighbours: Vec<SocketAddr>) -> Self {
         Self {
             clients_socket: Arc::new(clients_socket),
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            clients: Arc::new(DashMap::new()),
             neighbours: Arc::new(neighbours),
         }
     }
 
     pub async fn start_streaming_video(&self, video_path: String) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
         let video_process = VideoProcess::new_video_process(&video_path).await?;
-        self.clients.write().unwrap().insert(video_path.clone(), Vec::new());
+        self.clients.insert(video_path.clone(), Vec::new());
 
         let state = self.clone();
 
@@ -35,7 +35,7 @@ impl State {
             let mut buf = [0u8; 65536];
             loop {
                 if let Ok(n) = video_process.recv(&mut buf).await {
-                    let clients_list = state.clients.read().unwrap().get(&video_path).cloned().unwrap_or_default();
+                    let clients_list = state.clients.get(&video_path).map(|v| v.clone()).unwrap_or_default();
                     let packet = SCPacket::VideoPacket(buf[..n].to_vec());
 
                     state.send_packets(packet, &clients_list).await;
@@ -52,7 +52,7 @@ impl State {
     }
 
     pub fn get_video_list(&self) -> Vec<String> {
-        self.clients.read().unwrap().keys().cloned().collect()
+        self.clients.iter().map(|entry| entry.key().clone()).collect()
     }
 }
 
@@ -77,13 +77,13 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
             Ok(CSPacket::Heartbeat) => debug!("Received heartbeat from {}", addr),
             Ok(CSPacket::RequestVideo(video_path)) => {
                 info!("Received request to start video {}", video_path);
-                state.clients.write().unwrap()
+                state.clients
                     .entry(video_path)
                     .or_insert_with(Vec::new)
                     .push(addr);
             }
             Ok(CSPacket::StopVideo(video_path)) => {
-                if let Some(subscribers) = state.clients.write().unwrap().get_mut(&video_path) {
+                if let Some(mut subscribers) = state.clients.get_mut(&video_path) {
                     subscribers.retain(|&subscriber| subscriber != addr);
                 }
             }
