@@ -10,7 +10,6 @@ use tokio::task::JoinHandle;
 #[derive(Clone)]
 pub struct State {
     /// Map of video paths to interested subscribers
-    /// todo: replace with dashmap
     clients: Arc<DashMap<String, Vec<SocketAddr>>>,
     clients_socket: Arc<UdpSocket>,
     neighbours: Arc<Vec<SocketAddr>>,
