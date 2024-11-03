@@ -1,38 +1,17 @@
-use std::io::Write;
+use common::packet::{CSPacket, SCPacket};
 use log::{info, trace};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::io::Write;
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
-use tokio::net::{TcpStream, UdpSocket};
-use common::packet::{BNPacket, CSPacket, NBPacket, SCPacket};
+use tokio::net::UdpSocket;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
-    // Bootstraper
-    let mut stream = TcpStream::connect(("localhost", common::BOOTSTRAPER_PORT))
-        .await
-        .expect("Failed to connect to bootstraper. Try running it first.");
-
-    let packet = NBPacket::RequestNeighbours;
-    let packet = bincode::serialize(&packet).unwrap();
-
-    stream.write_all(&packet).await.unwrap();
-
-    let mut buf = [0u8; 16384];
-    let n = stream.read(&mut buf).await.unwrap();
-    let packet: BNPacket = bincode::deserialize(&buf[..n]).unwrap();
-
-    match packet {
-        BNPacket::Neighbours(neighbours) => {
-            info!("Received neighbours: {:?}", neighbours);
-        }
-    }
-
     // Server
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
-    socket.connect((Ipv4Addr::LOCALHOST, common::SERVER_PORT)).await.unwrap();
+    socket.connect((Ipv4Addr::LOCALHOST, common::PORT)).await.unwrap();
 
     let packet = CSPacket::RequestVideo("video.mp4".to_string());
     let packet = bincode::serialize(&packet).unwrap();
