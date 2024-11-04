@@ -1,3 +1,9 @@
 .idea
+.vscode
 target
 Cargo.lock
+.env
+.env.*
+!.env.*.sample
+.envrc
+*.mp4

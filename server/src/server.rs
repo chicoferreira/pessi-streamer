@@ -119,8 +119,6 @@ pub mod flood {
                 videos_available: state.get_video_list(),
             };
 
-            debug!("Sending flood packet: {:?}", packet);
-
             let Ok(packet) = bincode::serialize(&packet) else {
                 error!("Failed to serialize flood packet");
                 continue;

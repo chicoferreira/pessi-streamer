@@ -1,15 +1,11 @@
+use crate::node::State;
 use anyhow::Context;
 use log::info;
 use std::env;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::UdpSocket;
 
-struct Neighbour {}
-
-struct State {
-    neighbours: Vec<IpAddr>,
-    udp_socket: UdpSocket,
-}
+mod node;
 
 fn get_node_address() -> anyhow::Result<SocketAddr> {
     env::args().nth(1)
@@ -22,9 +18,9 @@ fn get_node_address() -> anyhow::Result<SocketAddr> {
 async fn main() -> anyhow::Result<()> {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
-    let node_addr = get_node_address()?;
+    info!("Starting node...");
 
-    info!("Node starting at: {}", node_addr);
+    let node_addr = get_node_address()?;
 
     let neighbours = common::neighbours::fetch_neighbours_with_retries(node_addr).await?;
 
@@ -34,10 +30,9 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Failed to bind UDP socket to node address")?;
 
-    loop {
-        let mut buf = [0u8; 1024];
-        let (n, peer_addr) = udp_socket.recv_from(&mut buf).await?;
+    let state = State::new(neighbours, udp_socket);
 
-        info!("Received {} bytes from {}", n, peer_addr);
-    }
+    node::run_node(state).await?;
+
+    Ok(())
 }

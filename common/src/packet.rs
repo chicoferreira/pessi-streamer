@@ -36,10 +36,12 @@ pub enum SCPacket {
 /// Server or Node to Node packet
 #[derive(Serialize, Deserialize, Debug)]
 pub enum SNCPacket {
+    /// Packet to flood the network with, starting on the server
     FloodPacket {
         hops: u8,
         millis_created_at_server: u128,
         videos_available: Vec<String>,
     },
-    SCPacket(SCPacket),
+
+    // TODO: Add packet from server to client (stream)
 }
