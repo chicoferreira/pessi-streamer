@@ -1,10 +1,10 @@
+use std::io::BufRead;
+use std::process::Command;
 use anyhow::Context;
 use ffmpeg_sidecar::child::FfmpegChild;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::version::ffmpeg_version;
 use log::info;
-use std::io::BufRead;
-use std::process::Command;
 use tokio::net::UdpSocket;
 
 pub struct VideoProcess {
@@ -32,11 +32,7 @@ impl VideoProcess {
         let codec = auto_detect_codec().context("Failed to auto detect codec")?;
         info!("Auto detected codec: {}", codec);
 
-        let ffmpeg_child_process = launch_video_process(
-            &video_path,
-            &format!("udp://{}", ffmpeg_socket_addr),
-            &codec,
-        );
+        let ffmpeg_child_process = launch_video_process(&video_path, &format!("udp://{}", ffmpeg_socket_addr), &codec);
 
         Ok(VideoProcess {
             ffmpeg_child_process,
@@ -73,11 +69,7 @@ pub fn auto_detect_codec() -> Option<String> {
         .map(|codec| codec.to_string())
 }
 
-pub fn launch_video_process(
-    video_path: &str,
-    send_to_path: &str,
-    codec_video: &str,
-) -> FfmpegChild {
+pub fn launch_video_process(video_path: &str, send_to_path: &str, codec_video: &str) -> FfmpegChild {
     let string = ffmpeg_version().unwrap();
     info!("Starting ffmpeg process (version: {})", string);
 
@@ -86,17 +78,14 @@ pub fn launch_video_process(
     FfmpegCommand::new()
         .realtime()
         // loop video indefinitely
-        .arg("-stream_loop")
-        .arg("-1")
+        .arg("-stream_loop").arg("-1")
         .hwaccel("auto")
         .input(video_path)
         .codec_video(codec_video)
-        .arg("-b:v")
-        .arg("8M")
+        .arg("-b:v").arg("8M")
         .codec_audio("aac")
         // send keyframes every 30 frames
-        .arg("-g")
-        .arg("30")
+        .arg("-g").arg("30")
         .format("mpegts")
         .output(send_to_path)
         .spawn()

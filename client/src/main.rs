@@ -12,16 +12,17 @@ use tokio::net::UdpSocket;
 struct Args {
     /// Name of the stream to watch
     #[arg(short, long)]
-    stream: String,
+    name: String,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    if args.stream.is_empty() {
+    if args.name.is_empty() {
         return Ok(());
     }
+    
 
     env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
@@ -29,12 +30,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Server
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
-    socket
-        .connect((Ipv4Addr::LOCALHOST, common::PORT))
-        .await
-        .unwrap();
+    socket.connect((Ipv4Addr::LOCALHOST, common::PORT)).await.unwrap();
 
-    let packet = CSPacket::RequestVideo(args.stream.to_string());
+    let packet = CSPacket::RequestVideo(args.name.to_string());
     let packet = bincode::serialize(&packet).unwrap();
 
     socket.send(&packet).await.unwrap();

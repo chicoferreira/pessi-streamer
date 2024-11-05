@@ -12,8 +12,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting bootstraper...");
 
-    let bootstraper_addr =
-        common::get_bootstraper_address().context("Failed to get bootstraper address")?;
+    let bootstraper_addr = common::get_bootstraper_address()
+        .context("Failed to get bootstraper address")?;
 
     let server_socket = TcpListener::bind(bootstraper_addr)
         .await
@@ -22,8 +22,8 @@ async fn main() -> anyhow::Result<()> {
     let neighbours = std::fs::read_to_string("topologies/neighbours.toml")
         .context("Failed to read neighbours.toml")?;
 
-    let neighbours: Neighbours =
-        toml::from_str(&*neighbours).context("Failed to parse neighbours.toml")?;
+    let neighbours: Neighbours = toml::from_str(&*neighbours)
+        .context("Failed to parse neighbours.toml")?;
 
     info!("Loaded {} neighbours information.", neighbours.len());
 
