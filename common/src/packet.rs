@@ -42,6 +42,5 @@ pub enum SNCPacket {
         millis_created_at_server: u128,
         videos_available: Vec<String>,
     },
-
     // TODO: Add packet from server to client (stream)
 }

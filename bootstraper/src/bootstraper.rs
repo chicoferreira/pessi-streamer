@@ -3,7 +3,10 @@ use log::{error, info};
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, sync::Arc};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[derive(Deserialize)]
 pub struct Neighbours {
@@ -51,7 +54,11 @@ pub async fn run_server(state: State, socket: TcpListener) -> anyhow::Result<()>
     }
 }
 
-async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) -> anyhow::Result<()> {
+async fn handle_client(
+    mut stream: TcpStream,
+    addr: SocketAddr,
+    state: State,
+) -> anyhow::Result<()> {
     let mut buf = [0u8; 1024];
 
     loop {
@@ -65,7 +72,8 @@ async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) ->
             Ok(NBPacket::RequestNeighbours) => {
                 info!("Received request for neighbours from {}", addr);
 
-                let neighbours_list = state.neighbours
+                let neighbours_list = state
+                    .neighbours
                     .get(&addr.ip())
                     .cloned()
                     .unwrap_or_default();

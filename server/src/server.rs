@@ -24,7 +24,10 @@ impl State {
         }
     }
 
-    pub async fn start_streaming_video(&self, video_path: String) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
+    pub async fn start_streaming_video(
+        &self,
+        video_path: String,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
         let video_process = VideoProcess::new_video_process(&video_path).await?;
         self.clients.insert(video_path.clone(), Vec::new());
 
@@ -34,7 +37,11 @@ impl State {
             let mut buf = [0u8; 65536];
             loop {
                 if let Ok(n) = video_process.recv(&mut buf).await {
-                    let clients_list = state.clients.get(&video_path).map(|v| v.clone()).unwrap_or_default();
+                    let clients_list = state
+                        .clients
+                        .get(&video_path)
+                        .map(|v| v.clone())
+                        .unwrap_or_default();
                     let packet = SCPacket::VideoPacket(buf[..n].to_vec());
 
                     state.send_packets(packet, &clients_list).await;
@@ -51,7 +58,10 @@ impl State {
     }
 
     pub fn get_video_list(&self) -> Vec<String> {
-        self.clients.iter().map(|entry| entry.key().clone()).collect()
+        self.clients
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
 }
 
@@ -76,7 +86,8 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
             Ok(CSPacket::Heartbeat) => debug!("Received heartbeat from {}", addr),
             Ok(CSPacket::RequestVideo(video_name)) => {
                 info!("Received request to start video {}", video_name);
-                state.clients
+                state
+                    .clients
                     .entry("./videos/".to_string() + &video_name + ".mp4")
                     .or_insert_with(Vec::new)
                     .push(addr);
@@ -90,7 +101,6 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
         }
     }
 }
-
 
 pub mod flood {
     use crate::server::State;

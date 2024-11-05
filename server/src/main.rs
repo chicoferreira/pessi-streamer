@@ -6,13 +6,18 @@ use std::env;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::UdpSocket;
 
-mod video;
 mod server;
+mod video;
 
 fn get_server_address() -> anyhow::Result<SocketAddr> {
-    env::args().nth(1)
+    env::args()
+        .nth(1)
         .ok_or_else(|| anyhow::anyhow!("Usage: server <server_ip>"))
-        .and_then(|ip_str| ip_str.parse::<IpAddr>().map_err(|_| anyhow::anyhow!("Invalid IP address provided: {}", ip_str)))
+        .and_then(|ip_str| {
+            ip_str
+                .parse::<IpAddr>()
+                .map_err(|_| anyhow::anyhow!("Invalid IP address provided: {}", ip_str))
+        })
         .map(|server_ip| SocketAddr::new(server_ip, common::PORT))
 }
 
@@ -38,7 +43,8 @@ async fn main() -> anyhow::Result<()> {
 
     let server_addr = get_server_address()?;
 
-    let neighbours = common::neighbours::fetch_neighbours_with_retries(server_addr).await?
+    let neighbours = common::neighbours::fetch_neighbours_with_retries(server_addr)
+        .await?
         .into_iter()
         .map(|ip| SocketAddr::new(ip, common::PORT))
         .collect();

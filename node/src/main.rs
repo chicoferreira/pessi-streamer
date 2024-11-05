@@ -8,15 +8,22 @@ use tokio::net::UdpSocket;
 mod node;
 
 fn get_node_address() -> anyhow::Result<SocketAddr> {
-    env::args().nth(1)
+    env::args()
+        .nth(1)
         .ok_or_else(|| anyhow::anyhow!("Usage: node <node_ip>"))
-        .and_then(|ip_str| ip_str.parse::<IpAddr>().map_err(|_| anyhow::anyhow!("Invalid IP address provided: {}", ip_str)))
+        .and_then(|ip_str| {
+            ip_str
+                .parse::<IpAddr>()
+                .map_err(|_| anyhow::anyhow!("Invalid IP address provided: {}", ip_str))
+        })
         .map(|node_ip| SocketAddr::new(node_ip, common::PORT))
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::builder().filter_level(log::LevelFilter::Debug).init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
 
     info!("Starting node...");
 
