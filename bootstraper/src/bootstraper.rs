@@ -1,9 +1,9 @@
+use common::packet::{BNPacket, NBPacket};
 use log::{error, info};
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
-use common::packet::{BNPacket, NBPacket};
 
 #[derive(Deserialize)]
 pub struct Neighbours {
@@ -45,7 +45,7 @@ pub async fn run_server(state: State, socket: TcpListener) -> anyhow::Result<()>
         let state = state.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_client(stream, addr, state).await {
-                eprintln!("Error handling client: {}", e);
+                error!("Error handling client: {}", e);
             }
         });
     }

@@ -2,7 +2,6 @@ use crate::bootstraper::{Neighbours, State};
 use anyhow::Context;
 use env_logger::Env;
 use log::info;
-use std::net::Ipv4Addr;
 use tokio::net::TcpListener;
 
 mod bootstraper;
@@ -13,7 +12,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting bootstraper...");
 
-    let server_socket = TcpListener::bind((Ipv4Addr::new(127, 0, 0, 2), common::BOOTSTRAPER_PORT))
+    let bootstraper_addr = common::get_bootstraper_address()
+        .context("Failed to get bootstraper address")?;
+
+    let server_socket = TcpListener::bind(bootstraper_addr)
         .await
         .context("Failed to bind to server socket")?;
 

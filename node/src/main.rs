@@ -1,53 +1,38 @@
+use crate::node::State;
 use anyhow::Context;
+use log::info;
 use std::env;
-use std::net::{IpAddr, Ipv4Addr};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr};
+use tokio::net::UdpSocket;
 
-async fn fetch_neighbours() -> anyhow::Result<Vec<IpAddr>> {
-    let mut bootstraper_stream = TcpStream::connect((Ipv4Addr::new(127, 0, 0, 2), common::BOOTSTRAPER_PORT))
-        .await
-        .context("Failed to connect to bootstraper")?;
+mod node;
 
-    let packet = common::packet::NBPacket::RequestNeighbours;
-    bootstraper_stream.write_all(&bincode::serialize(&packet)?).await?;
-
-    let mut buf = [0u8; 1024];
-    let n = bootstraper_stream.read(&mut buf).await?;
-    if n == 0 {
-        anyhow::bail!("No packet received");
-    }
-
-    let packet = bincode::deserialize(&buf[..n])?;
-
-    match packet {
-        common::packet::BNPacket::Neighbours(neighbours) => Ok(neighbours),
-    }
-}
-
-struct State {
-    neighbours: Vec<IpAddr>,
-    udp_socket: UdpSocket,
+fn get_node_address() -> anyhow::Result<SocketAddr> {
+    env::args().nth(1)
+        .ok_or_else(|| anyhow::anyhow!("Usage: node <node_ip>"))
+        .and_then(|ip_str| ip_str.parse::<IpAddr>().map_err(|_| anyhow::anyhow!("Invalid IP address provided: {}", ip_str)))
+        .map(|node_ip| SocketAddr::new(node_ip, common::PORT))
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
-    let node_ip: IpAddr = env::args().nth(0)
-        .map(|ip| ip.parse().ok())
-        .flatten()
-        .context("Failed to parse IP address")?;
+    info!("Starting node...");
 
-    let neighbours = fetch_neighbours().await?;
-    println!("Received neighbours: {:?}", neighbours);
+    let node_addr = get_node_address()?;
 
-    let udp_socket = UdpSocket::bind((node_ip, 0)).await?;
+    let neighbours = common::neighbours::fetch_neighbours_with_retries(node_addr).await?;
 
-    let state = State {
-        neighbours,
-        udp_socket,
-    };
+    info!("Fetched neighbours: {:?}", neighbours);
+
+    let udp_socket = UdpSocket::bind(node_addr)
+        .await
+        .context("Failed to bind UDP socket to node address")?;
+
+    let state = State::new(neighbours, udp_socket);
+
+    node::run_node(state).await?;
 
     Ok(())
 }

@@ -32,3 +32,16 @@ pub enum SCPacket {
     /// A packet containing video data
     VideoPacket(Vec<u8>),
 }
+
+/// Server or Node to Node packet
+#[derive(Serialize, Deserialize, Debug)]
+pub enum SNCPacket {
+    /// Packet to flood the network with, starting on the server
+    FloodPacket {
+        hops: u8,
+        millis_created_at_server: u128,
+        videos_available: Vec<String>,
+    },
+
+    // TODO: Add packet from server to client (stream)
+}

@@ -30,10 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Server
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
-    socket
-        .connect((Ipv4Addr::LOCALHOST, common::SERVER_PORT))
-        .await
-        .unwrap();
+    socket.connect((Ipv4Addr::LOCALHOST, common::PORT)).await.unwrap();
 
     let packet = CSPacket::RequestVideo(args.name.to_string());
     let packet = bincode::serialize(&packet).unwrap();

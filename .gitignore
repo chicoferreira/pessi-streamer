@@ -1,5 +1,14 @@
 # videos folder
 videos/
 .idea
+.vscode
 target
 Cargo.lock
+<<<<<<< HEAD
+=======
+.env
+.env.*
+!.env.*.sample
+.envrc
+*.mp4
+>>>>>>> main
