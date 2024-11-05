@@ -61,10 +61,10 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
         let packet: CSPacket = bincode::deserialize(&buf[..n])?;
         match packet {
             CSPacket::Heartbeat => debug!("Received heartbeat from {}", addr),
-            CSPacket::RequestVideo(video_path) => {
-                info!("Received request to start video {}", video_path);
+            CSPacket::RequestVideo(video_name) => {
+                info!("Received request to start video {}", video_name);
                 state.clients.write().unwrap()
-                    .entry(video_path)
+                    .entry("./videos/".to_string() + &video_name + ".mp4")
                     .or_insert_with(Vec::new)
                     .push(addr);
             }

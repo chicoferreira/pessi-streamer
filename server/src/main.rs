@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = State::new(clients_socket);
 
-    let videos = vec!["video.mp4", ];
+    let videos = list_videos("./videos".to_string());
 
     for video in videos {
         if let Err(e) = state.start_streaming_video(video.to_string()).await {
@@ -32,4 +32,17 @@ async fn main() -> anyhow::Result<()> {
     server::run_client_socket(state).await?;
 
     Ok(())
+}
+
+fn list_videos(path: String) -> Vec<String> {
+    let mut videos = Vec::new();
+    for entry in std::fs::read_dir(path).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_file() {
+            videos.push(path.to_str().unwrap().to_string());
+        }
+    }
+
+    videos
 }

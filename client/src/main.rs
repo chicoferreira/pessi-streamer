@@ -1,46 +1,49 @@
+use clap::Parser;
+use common::packet::{CSPacket, SCPacket};
+use log::trace;
 use std::io::Write;
-use log::{info, trace};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
-use tokio::net::{TcpStream, UdpSocket};
-use common::packet::{BNPacket, CSPacket, NBPacket, SCPacket};
+use tokio::net::UdpSocket;
+
+/// A simple program to watch live streams
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Name of the stream to watch
+    #[arg(short, long)]
+    name: String,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::builder().filter_level(log::LevelFilter::Debug).init();
+    let args = Args::parse();
 
-    // Bootstraper
-    let mut stream = TcpStream::connect(("localhost", common::BOOTSTRAPER_PORT))
-        .await
-        .expect("Failed to connect to bootstraper. Try running it first.");
-
-    let packet = NBPacket::RequestNeighbours;
-    let packet = bincode::serialize(&packet).unwrap();
-
-    stream.write_all(&packet).await.unwrap();
-
-    let mut buf = [0u8; 16384];
-    let n = stream.read(&mut buf).await.unwrap();
-    let packet: BNPacket = bincode::deserialize(&buf[..n]).unwrap();
-
-    match packet {
-        BNPacket::Neighbours(neighbours) => {
-            info!("Received neighbours: {:?}", neighbours);
-        }
+    if args.name.is_empty() {
+        return Ok(());
     }
+    
+
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
 
     // Server
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
-    socket.connect((Ipv4Addr::LOCALHOST, common::SERVER_PORT)).await.unwrap();
+    socket
+        .connect((Ipv4Addr::LOCALHOST, common::SERVER_PORT))
+        .await
+        .unwrap();
 
-    let packet = CSPacket::RequestVideo("video.mp4".to_string());
+    let packet = CSPacket::RequestVideo(args.name.to_string());
     let packet = bincode::serialize(&packet).unwrap();
 
     socket.send(&packet).await.unwrap();
 
     let mut ffplay = Command::new("ffplay")
-        .args("-fflags nobuffer -analyzeduration 200000 -probesize 1000000 -f mpegts -i -".split(' '))
+        .args(
+            "-fflags nobuffer -analyzeduration 200000 -probesize 1000000 -f mpegts -i -".split(' '),
+        )
         .stdin(Stdio::piped())
         .spawn()
         .unwrap();
