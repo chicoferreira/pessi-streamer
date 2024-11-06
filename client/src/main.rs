@@ -55,8 +55,17 @@ async fn main() -> anyhow::Result<()> {
         match packet {
             SCPacket::VideoPacket(data) => {
                 trace!("Received video packet with {} bytes", data.len());
-                ffplay_stdin.write_all(&data).unwrap();
-                ffplay_stdin.flush().unwrap();
+                match ffplay_stdin.write_all(&data) {
+                    Ok(_) => {
+                        // Write was successful
+                        ffplay_stdin.flush().unwrap();
+                    }
+                    Err(_e) => {
+                        // Handle the error, e.g., log it, display a user-friendly message, etc.
+                        println!("Stream was closed. Goodbye!");
+                        return Ok(());
+                    }
+                }
             }
         }
     }
