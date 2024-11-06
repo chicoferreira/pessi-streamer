@@ -1,6 +1,6 @@
 use clap::Parser;
 use common::packet::{CSPacket, SCPacket};
-use log::trace;
+use log::{trace, info};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
@@ -57,12 +57,10 @@ async fn main() -> anyhow::Result<()> {
                 trace!("Received video packet with {} bytes", data.len());
                 match ffplay_stdin.write_all(&data) {
                     Ok(_) => {
-                        // Write was successful
                         ffplay_stdin.flush().unwrap();
                     }
                     Err(_e) => {
-                        // Handle the error, e.g., log it, display a user-friendly message, etc.
-                        println!("Stream was closed. Goodbye!");
+                        info!("Stream was closed. Goodbye!");
                         return Ok(());
                     }
                 }
