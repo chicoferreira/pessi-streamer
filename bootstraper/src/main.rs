@@ -1,14 +1,26 @@
-use crate::bootstraper::{Neighbours, State};
 use anyhow::Context;
+use clap::{command, Parser};
 use env_logger::Env;
 use log::info;
 use tokio::net::TcpListener;
+use crate::bootstraper::{Neighbours, State};
 
 mod bootstraper;
+
+/// Simple program to start a bootstraper
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Neighbours configuration file
+    #[arg(short, long, default_value = "topologies/neighbours.toml")]
+    config: String,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
+
+    let args = Args::parse();
 
     info!("Starting bootstraper...");
 
@@ -19,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Failed to bind to server socket")?;
 
-    let neighbours = std::fs::read_to_string("topologies/neighbours.toml")
+    let neighbours = std::fs::read_to_string(&args.config)
         .context("Failed to read neighbours.toml")?;
 
     let neighbours: Neighbours = toml::from_str(&*neighbours)
