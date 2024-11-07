@@ -12,3 +12,4 @@ log = "0.4.22"
 tokio = { version = "1.41.0", features = ["full"] }
 serde = { version = "1.0.214", features = ["derive"] }
 toml = "0.8.19"
+clap = { version = "4.5.20", features = ["derive"] }

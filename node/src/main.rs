@@ -1,26 +1,29 @@
 use crate::node::State;
 use anyhow::Context;
+use clap::{command, Parser};
 use log::info;
-use std::env;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::UdpSocket;
 
 mod node;
 
-fn get_node_address() -> anyhow::Result<SocketAddr> {
-    env::args().nth(1)
-        .ok_or_else(|| anyhow::anyhow!("Usage: node <node_ip>"))
-        .and_then(|ip_str| ip_str.parse::<IpAddr>().map_err(|_| anyhow::anyhow!("Invalid IP address provided: {}", ip_str)))
-        .map(|node_ip| SocketAddr::new(node_ip, common::PORT))
+/// Simple program to start a node
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Node IP address
+    #[arg(short, long)]
+    ip: IpAddr,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::builder().filter_level(log::LevelFilter::Debug).init();
 
-    info!("Starting node...");
+    let args = Args::parse();
+    let node_addr = SocketAddr::new(args.ip, common::PORT);
 
-    let node_addr = get_node_address()?;
+    info!("Starting node...");
 
     let neighbours = common::neighbours::fetch_neighbours_with_retries(node_addr).await?;
 
