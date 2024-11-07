@@ -3,6 +3,7 @@ use common::packet::{CSPacket, SCPacket};
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
@@ -24,9 +25,13 @@ impl State {
         }
     }
 
-    pub async fn start_streaming_video(&self, video_path: String) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
-        let video_process = VideoProcess::new_video_process(&video_path).await?;
-        self.clients.insert(video_path.clone(), Vec::new());
+    pub async fn start_streaming_video(&self, video_path: PathBuf, video_folder: &PathBuf) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
+        let video_process = VideoProcess::new_video_process(video_path.clone()).await?;
+        let video_name = video_path.with_extension("")
+            .strip_prefix(video_folder)?
+            .to_str().unwrap().to_string();
+
+        self.clients.insert(video_name.clone(), Vec::new());
 
         let state = self.clone();
 
@@ -34,7 +39,7 @@ impl State {
             let mut buf = [0u8; 65536];
             loop {
                 if let Ok(n) = video_process.recv(&mut buf).await {
-                    let clients_list = state.clients.get(&video_path).map(|v| v.clone()).unwrap_or_default();
+                    let clients_list = state.clients.get(&video_name).map(|v| v.clone()).unwrap_or_default();
                     let packet = SCPacket::VideoPacket(buf[..n].to_vec());
 
                     state.send_packets(packet, &clients_list).await;
@@ -74,10 +79,10 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
         let packet = bincode::deserialize(&buf[..n]);
         match packet {
             Ok(CSPacket::Heartbeat) => debug!("Received heartbeat from {}", addr),
-            Ok(CSPacket::RequestVideo(video_path)) => {
-                info!("Received request to start video {}", video_path);
+            Ok(CSPacket::RequestVideo(video_name)) => {
+                info!("Received request to start video {}", video_name);
                 state.clients
-                    .entry(video_path)
+                    .entry(video_name)
                     .or_insert_with(Vec::new)
                     .push(addr);
             }

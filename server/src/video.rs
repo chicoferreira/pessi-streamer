@@ -1,4 +1,5 @@
 use std::io::BufRead;
+use std::path::PathBuf;
 use std::process::Command;
 use anyhow::Context;
 use ffmpeg_sidecar::child::FfmpegChild;
@@ -19,12 +20,12 @@ impl Drop for VideoProcess {
 }
 
 impl VideoProcess {
-    pub async fn new_video_process(video_path: &str) -> anyhow::Result<VideoProcess> {
+    pub async fn new_video_process(video_path: PathBuf) -> anyhow::Result<VideoProcess> {
         if !std::path::Path::new(&video_path).exists() {
-            return Err(anyhow::anyhow!("Video file does not exist: {}", video_path));
+            return Err(anyhow::anyhow!("Video file does not exist: {:?}", video_path));
         }
 
-        info!("Starting video task for {}", video_path);
+        info!("Starting video task for {:?}", video_path);
 
         let ffmpeg_socket = UdpSocket::bind("127.0.0.1:0").await?;
         let ffmpeg_socket_addr = ffmpeg_socket.local_addr()?;
@@ -32,7 +33,7 @@ impl VideoProcess {
         let codec = auto_detect_codec().context("Failed to auto detect codec")?;
         info!("Auto detected codec: {}", codec);
 
-        let ffmpeg_child_process = launch_video_process(&video_path, &format!("udp://{}", ffmpeg_socket_addr), &codec);
+        let ffmpeg_child_process = launch_video_process(video_path, &format!("udp://{}", ffmpeg_socket_addr), &codec);
 
         Ok(VideoProcess {
             ffmpeg_child_process,
@@ -69,18 +70,16 @@ pub fn auto_detect_codec() -> Option<String> {
         .map(|codec| codec.to_string())
 }
 
-pub fn launch_video_process(video_path: &str, send_to_path: &str, codec_video: &str) -> FfmpegChild {
+pub fn launch_video_process(video_path: PathBuf, send_to_path: &str, codec_video: &str) -> FfmpegChild {
     let string = ffmpeg_version().unwrap();
     info!("Starting ffmpeg process (version: {})", string);
-
-    // todo: auto detect gpu acceleration
 
     FfmpegCommand::new()
         .realtime()
         // loop video indefinitely
         .arg("-stream_loop").arg("-1")
         .hwaccel("auto")
-        .input(video_path)
+        .input(video_path.to_str().unwrap())
         .codec_video(codec_video)
         .arg("-b:v").arg("8M")
         .codec_audio("aac")
