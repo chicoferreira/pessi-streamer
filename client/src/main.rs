@@ -1,25 +1,41 @@
+use clap::Parser;
 use common::packet::{CSPacket, SCPacket};
-use log::{info, trace};
+use log::{trace, info};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
 use tokio::net::UdpSocket;
 
+/// A simple program to watch live streams
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Name of the stream to watch
+    #[arg(short, long)]
+    stream: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::builder().filter_level(log::LevelFilter::Debug).init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
+
+    let args = Args::parse();
 
     // Server
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
     socket.connect((Ipv4Addr::LOCALHOST, common::PORT)).await.unwrap();
 
-    let packet = CSPacket::RequestVideo("video.mp4".to_string());
+    let packet = CSPacket::RequestVideo(args.stream);
     let packet = bincode::serialize(&packet).unwrap();
 
     socket.send(&packet).await.unwrap();
 
     let mut ffplay = Command::new("ffplay")
-        .args("-fflags nobuffer -analyzeduration 200000 -probesize 1000000 -f mpegts -i -".split(' '))
+        .args(
+            "-fflags nobuffer -analyzeduration 200000 -probesize 1000000 -f mpegts -i -".split(' '),
+        )
         .stdin(Stdio::piped())
         .spawn()
         .unwrap();
@@ -34,8 +50,15 @@ async fn main() -> anyhow::Result<()> {
         match packet {
             SCPacket::VideoPacket(data) => {
                 trace!("Received video packet with {} bytes", data.len());
-                ffplay_stdin.write_all(&data).unwrap();
-                ffplay_stdin.flush().unwrap();
+                match ffplay_stdin.write_all(&data) {
+                    Ok(_) => {
+                        ffplay_stdin.flush().unwrap();
+                    }
+                    Err(_e) => {
+                        info!("Stream was closed. Goodbye!");
+                        return Ok(());
+                    }
+                }
             }
         }
     }

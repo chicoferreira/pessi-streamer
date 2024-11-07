@@ -4,7 +4,9 @@ use clap::{command, Parser};
 use env_logger::Env;
 use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
+use std::path::{PathBuf};
 use tokio::net::UdpSocket;
+use walkdir::WalkDir;
 
 mod video;
 mod server;
@@ -19,6 +21,15 @@ struct Args {
     /// Path to the videos directory
     #[arg(short, long, default_value = "videos")]
     videos: String,
+}
+
+fn get_files(dir: PathBuf) -> Vec<PathBuf> {
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.path().to_path_buf())
+        .collect()
 }
 
 #[tokio::main]
@@ -42,10 +53,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = State::new(clients_socket, neighbours);
 
-    let videos = vec!["video.mp4", ];
+    let video_folder = PathBuf::from("./videos");
+    let videos = get_files(video_folder.clone());
 
     for video in videos {
-        if let Err(e) = state.start_streaming_video(video.to_string()).await {
+        if let Err(e) = state.start_streaming_video(video, &video_folder).await {
             error!("Failed to start video task: {}", e);
         }
     }
