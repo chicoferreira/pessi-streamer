@@ -29,14 +29,6 @@ struct PendingPacket {
     retries: u8,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ReliablePacket<T> {
-    pub packet_id: u64,
-    pub reliable: bool,
-    pub is_ack: bool,
-    pub payload: T,
-}
-
 /// Protocol packet
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(bound(serialize = "T: Serialize", deserialize = "T: Deserialize<'de>"))]
