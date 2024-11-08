@@ -7,6 +7,7 @@ pub const PORT: u16 = 8010;
 
 pub mod packet;
 pub mod neighbours;
+mod reliable;
 
 pub fn get_bootstraper_address() -> anyhow::Result<SocketAddr> {
     env::var("BOOTSTRAPER_IP")
