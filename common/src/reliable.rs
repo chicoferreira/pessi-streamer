@@ -1,12 +1,12 @@
-use std::io;
-use std::marker::PhantomData;
-use std::sync::{Arc};
-use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use log::error;
-use tokio::net::UdpSocket;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::io;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
+use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 
 const MAX_RETRIES: u8 = 5;
@@ -33,20 +33,18 @@ struct PendingPacket {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(bound(serialize = "T: Serialize", deserialize = "T: Deserialize<'de>"))]
 enum ProtocolPacket<T> {
-    Ack {
-        packet_id: u64,
-    },
     Unreliable(T),
     Reliable {
         packet_id: u64,
         payload: T,
     },
+    Ack {
+        packet_id: u64,
+    },
 }
 
 #[derive(Debug, Error)]
 pub enum ReliableUdpSocketError {
-    #[error("Failed to send packet")]
-    SendError,
     #[error("Failed to receive packet")]
     IoError(#[from] io::Error),
     #[error("Failed to serialize packet")]
