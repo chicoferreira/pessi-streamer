@@ -1,4 +1,4 @@
-use common::packet::{BNPacket, NBPacket};
+use common::packet::{BootstraperNeighboursResponse, BootstraperPacket};
 use log::{error, info};
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
@@ -54,35 +54,32 @@ pub async fn run_server(state: State, socket: TcpListener) -> anyhow::Result<()>
 async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) -> anyhow::Result<()> {
     let mut buf = [0u8; 1024];
 
-    loop {
-        let n = stream.read(&mut buf).await?;
-        if n == 0 {
-            info!("Connection from {} closed", stream.peer_addr()?);
-            break;
+    let n = stream.read(&mut buf).await?;
+
+    let result: Result<BootstraperPacket, bincode::Error> = bincode::deserialize(&buf[..n]);
+
+    match result {
+        Ok(BootstraperPacket::RequestNeighbours) => {
+            info!("Received request for neighbours from {}", addr);
+
+            let neighbours_list = state.neighbours
+                .get(&addr.ip())
+                .cloned()
+                .unwrap_or_default();
+
+            info!("Sending neighbours list to {}: {:?}", addr, neighbours_list);
+
+            let packet = BootstraperNeighboursResponse(neighbours_list);
+
+            match bincode::serialize(&packet) {
+                Ok(bytes) => stream.write_all(&bytes).await?,
+                Err(err) => {
+                    error!("Error serializing packet: {}", err);
+                }
+            };
         }
-
-        match bincode::deserialize(&buf[..n]) {
-            Ok(NBPacket::RequestNeighbours) => {
-                info!("Received request for neighbours from {}", addr);
-
-                let neighbours_list = state.neighbours
-                    .get(&addr.ip())
-                    .cloned()
-                    .unwrap_or_default();
-
-                let packet = BNPacket::Neighbours(neighbours_list);
-
-                match bincode::serialize(&packet) {
-                    Ok(bytes) => stream.write_all(&bytes).await?,
-                    Err(err) => {
-                        error!("Error serializing packet: {}", err);
-                        continue;
-                    }
-                };
-            }
-            Err(e) => {
-                error!("Error deserializing packet: {}", e);
-            }
+        Err(e) => {
+            error!("Error deserializing packet: {}", e);
         }
     }
 

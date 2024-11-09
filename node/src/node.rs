@@ -1,53 +1,55 @@
 use std::net::{IpAddr, SocketAddr};
 
-use common::packet::SNCPacket;
+use common::packet::NodePacket;
+use common::reliable::ReliableUdpSocket;
 use log::{error, info, trace};
-use tokio::net::UdpSocket;
 
 pub struct Neighbour {}
 
 pub struct State {
     /// List of neighbours
     neighbours: Vec<IpAddr>,
-    udp_socket: UdpSocket,
+    socket: ReliableUdpSocket,
 }
 
 impl State {
-    pub fn new(neighbours: Vec<IpAddr>, udp_socket: UdpSocket) -> Self {
+    pub fn new(neighbours: Vec<IpAddr>, udp_socket: ReliableUdpSocket) -> Self {
         Self {
             neighbours,
-            udp_socket,
+            socket: udp_socket,
         }
     }
 }
 
 pub async fn run_node(state: State) -> anyhow::Result<()> {
-    info!("Waiting for packets on {}...", state.udp_socket.local_addr()?);
+    info!("Waiting for packets on {}...", state.socket.local_addr()?);
 
     let mut buf = [0u8; 1024];
     loop {
-        let (n, peer_addr) = match state.udp_socket.recv_from(&mut buf).await {
-            Ok(r) => r,
+        let (packet, addr): (NodePacket, SocketAddr) = match state.socket.receive(&mut buf).await {
+            Ok(Some(result)) => result,
+            Ok(None) => {
+                // Acknowledgement packet received
+                continue;
+            }
             Err(e) => {
                 error!("Failed to receive packet: {}", e);
                 continue;
             }
         };
 
-        let packet = bincode::deserialize(&buf[..n]);
         match packet {
-            Ok(SNCPacket::FloodPacket { hops, millis_created_at_server, videos_available } ) => {
-                info!("Received flood packet from {} with {} hops and {} videos", peer_addr, hops, videos_available.len());
-                controlled_flood(&state, peer_addr, hops, millis_created_at_server, videos_available).await;
+            NodePacket::FloodPacket { hops, millis_created_at_server, videos_available } => {
+                info!("Received flood packet from {} with {} hops and {} videos", addr, hops, videos_available.len());
+                controlled_flood(&state, addr, hops, millis_created_at_server, videos_available).await;
             }
-            Err(e) => error!("Failed to deserialize packet from client {:?}: {}", peer_addr, e),
         }
     }
 }
 
 /// Controlled flood consists of sending a packet to all neighbours except the one that sent it to us
 async fn controlled_flood(state: &State, peer_addr: SocketAddr, hops: u8, millis_created_at_server: u128, videos_available: Vec<String>) {
-    let flood_packet = SNCPacket::FloodPacket {
+    let flood_packet = NodePacket::FloodPacket {
         hops: hops + 1,
         millis_created_at_server,
         videos_available,
@@ -60,7 +62,7 @@ async fn controlled_flood(state: &State, peer_addr: SocketAddr, hops: u8, millis
         }
 
         let packet = bincode::serialize(&flood_packet).unwrap();
-        match state.udp_socket.send_to(&packet, SocketAddr::new(*addr, common::PORT)).await {
+        match state.socket.send_reliable(&packet, SocketAddr::new(*addr, common::PORT)).await {
             Ok(_) => {
                 trace!("Sent flood packet to {}", addr);
             }

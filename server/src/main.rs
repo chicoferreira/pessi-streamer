@@ -4,7 +4,7 @@ use clap::{command, Parser};
 use env_logger::Env;
 use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use tokio::net::UdpSocket;
 use walkdir::WalkDir;
 
@@ -42,14 +42,20 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting server...");
 
-    let neighbours = common::neighbours::fetch_neighbours_with_retries(server_addr).await?
+    let bootstraper_addr = common::get_bootstraper_address()?;
+
+    let neighbours = common::neighbours::fetch_neighbours_with_retries(server_addr, bootstraper_addr).await
         .into_iter()
         .map(|ip| SocketAddr::new(ip, common::PORT))
         .collect();
 
+    info!("Fetched neighbours: {:?}", neighbours);
+
     let clients_socket = UdpSocket::bind(server_addr)
         .await
         .context("Failed to bind to clients socket")?;
+
+    let clients_socket = common::reliable::ReliableUdpSocket::new(clients_socket);
 
     let state = State::new(clients_socket, neighbours);
 

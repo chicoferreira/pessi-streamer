@@ -1,13 +1,13 @@
+use crate::packet::BootstraperNeighboursResponse;
 use anyhow::Context;
-use log::{error, info, warn};
+use log::{info, warn};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpSocket;
 use tokio::time::{sleep, timeout};
 
-const RETRY_COUNT: u32 = 3;
-const RETRY_DELAY: Duration = Duration::from_secs(2);
+const RETRY_DELAY: Duration = Duration::from_secs(5);
 
 pub async fn fetch_neighbours(node_ip: SocketAddr, bootstraper_addr: SocketAddr) -> anyhow::Result<Vec<IpAddr>> {
     let socket = TcpSocket::new_v4()
@@ -24,7 +24,7 @@ pub async fn fetch_neighbours(node_ip: SocketAddr, bootstraper_addr: SocketAddr)
         .context("Connection attempt timed out")?
         .context("Failed to connect to the bootstrapper address")?;
 
-    let packet = crate::packet::NBPacket::RequestNeighbours;
+    let packet = crate::packet::BootstraperPacket::RequestNeighbours;
     let serialized_packet = bincode::serialize(&packet)
         .context("Failed to serialize RequestNeighbours packet")?;
 
@@ -40,37 +40,29 @@ pub async fn fetch_neighbours(node_ip: SocketAddr, bootstraper_addr: SocketAddr)
         anyhow::bail!("No data received from bootstrapper");
     }
 
-    let packet = bincode::deserialize(&buf[..n])
+    let BootstraperNeighboursResponse(neighbours) = bincode::deserialize(&buf[..n])
         .context("Failed to deserialize response packet")?;
 
     stream.shutdown().await
         .context("Failed to shutdown the stream")?;
 
-    match packet {
-        crate::packet::BNPacket::Neighbours(neighbours) => Ok(neighbours),
-    }
+    Ok(neighbours)
 }
 
-pub async fn fetch_neighbours_with_retries(node_ip: SocketAddr) -> anyhow::Result<Vec<IpAddr>> {
+pub async fn fetch_neighbours_with_retries(node_ip: SocketAddr, bootstraper_addr: SocketAddr) -> Vec<IpAddr> {
     let mut attempt = 0;
 
-    let bootstraper_addr = crate::get_bootstraper_address()?;
     info!("Fetching neighbours from bootstrapper at: {}", bootstraper_addr);
 
     loop {
         attempt += 1;
         match fetch_neighbours(node_ip, bootstraper_addr).await {
             Ok(neighbours) => {
-                return Ok(neighbours);
-            }
-            Err(e) if attempt < RETRY_COUNT => {
-                let delay = RETRY_DELAY * attempt;
-                warn!("Failed to fetch neighbours (attempt {}): {}. Retrying in {:?}...", attempt, e, delay);
-                sleep(delay).await;
+                return neighbours;
             }
             Err(e) => {
-                error!("Failed to fetch neighbours after {} attempts: {}", RETRY_COUNT, e);
-                return Err(e);
+                warn!("Failed to fetch neighbours (attempt {}): {}. Retrying in {:?}...", attempt, e, RETRY_DELAY);
+                sleep(RETRY_DELAY).await;
             }
         }
     }

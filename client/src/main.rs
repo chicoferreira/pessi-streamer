@@ -1,10 +1,10 @@
 use clap::Parser;
-use common::packet::{CSPacket, SCPacket};
 use log::{trace, info};
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
 use tokio::net::UdpSocket;
+use common::packet::{ClientPacket, ServerPacket};
 
 /// A simple program to watch live streams
 #[derive(Parser, Debug)]
@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
     socket.connect((Ipv4Addr::LOCALHOST, common::PORT)).await.unwrap();
 
-    let packet = CSPacket::RequestVideo(args.stream);
+    let packet = ServerPacket::RequestVideo(args.stream);
     let packet = bincode::serialize(&packet).unwrap();
 
     socket.send(&packet).await.unwrap();
@@ -45,10 +45,10 @@ async fn main() -> anyhow::Result<()> {
     let mut buf = [0u8; 16384];
     loop {
         let n = socket.recv(&mut buf).await.unwrap();
-        let packet: SCPacket = bincode::deserialize(&buf[..n]).unwrap();
+        let packet: ClientPacket = bincode::deserialize(&buf[..n]).unwrap();
 
         match packet {
-            SCPacket::VideoPacket(data) => {
+            ClientPacket::VideoPacket(data) => {
                 trace!("Received video packet with {} bytes", data.len());
                 match ffplay_stdin.write_all(&data) {
                     Ok(_) => {

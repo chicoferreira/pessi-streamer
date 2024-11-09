@@ -1,25 +1,25 @@
 use crate::video::VideoProcess;
-use common::packet::{CSPacket, SCPacket};
+use common::packet::{ClientPacket, ServerPacket};
+use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
-use log::{debug, error, info, trace};
+use log::{debug, error, info};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 pub struct State {
     /// Map of video paths to interested subscribers
     clients: Arc<DashMap<String, Vec<SocketAddr>>>,
-    clients_socket: Arc<UdpSocket>,
+    clients_socket: ReliableUdpSocket,
     neighbours: Arc<Vec<SocketAddr>>,
 }
 
 impl State {
-    pub fn new(clients_socket: UdpSocket, neighbours: Vec<SocketAddr>) -> Self {
+    pub fn new(clients_socket: ReliableUdpSocket, neighbours: Vec<SocketAddr>) -> Self {
         Self {
-            clients_socket: Arc::new(clients_socket),
+            clients_socket,
             clients: Arc::new(DashMap::new()),
             neighbours: Arc::new(neighbours),
         }
@@ -40,19 +40,14 @@ impl State {
             loop {
                 if let Ok(n) = video_process.recv(&mut buf).await {
                     let clients_list = state.clients.get(&video_name).map(|v| v.clone()).unwrap_or_default();
-                    let packet = SCPacket::VideoPacket(buf[..n].to_vec());
+                    let packet = ClientPacket::VideoPacket(buf[..n].to_vec());
 
-                    state.send_packets(packet, &clients_list).await;
+                    if let Err(e) = state.clients_socket.send_unreliable_broadcast(&packet, &clients_list).await {
+                        error!("Failed to send video packet: {}", e);
+                    }
                 }
             }
         }))
-    }
-
-    async fn send_packets(&self, packet: SCPacket, addrs: &[SocketAddr]) {
-        let packet = bincode::serialize(&packet).unwrap();
-        for addr in addrs {
-            self.clients_socket.send_to(&packet, addr).await.unwrap();
-        }
     }
 
     pub fn get_video_list(&self) -> Vec<String> {
@@ -66,32 +61,32 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 
     let mut buf = [0u8; 16384];
     loop {
-        let (n, addr) = match socket.recv_from(&mut buf).await {
-            Ok(r) => r,
+        let (packet, socket_addr) = match socket.receive(&mut buf).await {
+            Ok(Some(result)) => result,
+            Ok(None) => {
+                // Acknowledgement packet received
+                debug!("Received acknowledgement packet");
+                continue;
+            }
             Err(e) => {
                 error!("Failed to receive packet: {}", e);
                 continue;
             }
         };
 
-        trace!("Received {} bytes from {}", n, addr);
-
-        let packet = bincode::deserialize(&buf[..n]);
         match packet {
-            Ok(CSPacket::Heartbeat) => debug!("Received heartbeat from {}", addr),
-            Ok(CSPacket::RequestVideo(video_name)) => {
+            ServerPacket::RequestVideo(video_name) => {
                 info!("Received request to start video {}", video_name);
                 state.clients
                     .entry(video_name)
                     .or_insert_with(Vec::new)
-                    .push(addr);
+                    .push(socket_addr);
             }
-            Ok(CSPacket::StopVideo(video_path)) => {
+            ServerPacket::StopVideo(video_path) => {
                 if let Some(mut subscribers) = state.clients.get_mut(&video_path) {
-                    subscribers.retain(|&subscriber| subscriber != addr);
+                    subscribers.retain(|&subscriber| subscriber != socket_addr);
                 }
             }
-            Err(e) => error!("Failed to deserialize packet from client {:?}: {}", addr, e),
         }
     }
 }
@@ -99,7 +94,7 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 
 pub mod flood {
     use crate::server::State;
-    use common::packet::SNCPacket;
+    use common::packet::NodePacket;
     use log::{debug, error, info};
     use std::time::{Duration, SystemTimeError};
 
@@ -118,20 +113,17 @@ pub mod flood {
                 continue;
             };
 
-            let packet = SNCPacket::FloodPacket {
+            let packet = NodePacket::FloodPacket {
                 hops: 0,
                 millis_created_at_server: now,
                 videos_available: state.get_video_list(),
             };
 
-            let Ok(packet) = bincode::serialize(&packet) else {
-                error!("Failed to serialize flood packet");
-                continue;
-            };
+            state.clients_socket.send_unreliable_broadcast(&packet, &state.neighbours).await?;
 
             for addr in state.neighbours.iter() {
                 debug!("Sending flood packet to neighbour {}", addr);
-                if let Err(e) = state.clients_socket.send_to(&packet, addr).await {
+                if let Err(e) = state.clients_socket.send_reliable(&packet, *addr).await {
                     error!("Failed to send flood packet to neighbour {}: {}", addr, e);
                 }
             }

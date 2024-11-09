@@ -1,47 +1,38 @@
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
-/// Node to Bootstraper packet
+/// Packets that a node can receive
 #[derive(Serialize, Deserialize, Debug)]
-pub enum NBPacket {
-    /// Request neighbours
-    RequestNeighbours,
-}
-
-/// Bootstraper to Node packet
-#[derive(Serialize, Deserialize, Debug)]
-pub enum BNPacket {
-    /// Response to RequestNeighbours
-    Neighbours(Vec<IpAddr>),
-}
-
-/// Client to Server packet
-#[derive(Serialize, Deserialize, Debug)]
-pub enum CSPacket {
-    /// Heartbeat packet to keep connection alive
-    Heartbeat,
-    /// Request to start a video
-    RequestVideo(String),
-    /// Request to stop a video
-    StopVideo(String),
-}
-
-/// Server to Client packet
-#[derive(Serialize, Deserialize, Debug)]
-pub enum SCPacket {
-    /// A packet containing video data
-    VideoPacket(Vec<u8>),
-}
-
-/// Server or Node to Node packet
-#[derive(Serialize, Deserialize, Debug)]
-pub enum SNCPacket {
-    /// Packet to flood the network with, starting on the server
+pub enum NodePacket {
+    /// Response for `BootstraperPacket::RequestNeighbours`
     FloodPacket {
         hops: u8,
         millis_created_at_server: u128,
         videos_available: Vec<String>,
     },
+}
 
-    // TODO: Add packet from server to client (stream)
+#[derive(Serialize, Deserialize, Debug)]
+pub enum BootstraperPacket {
+    /// Request to get neighbours
+    RequestNeighbours,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BootstraperNeighboursResponse(pub Vec<IpAddr>);
+
+/// Packets that a client can receive
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ClientPacket {
+    /// A packet containing video data
+    VideoPacket(Vec<u8>),
+}
+
+/// Packets that a server can receive
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ServerPacket {
+    /// Request to start a video
+    RequestVideo(String),
+    /// Request to stop a video
+    StopVideo(String),
 }

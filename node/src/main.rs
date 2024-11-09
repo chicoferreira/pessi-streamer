@@ -25,15 +25,19 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting node...");
 
-    let neighbours = common::neighbours::fetch_neighbours_with_retries(node_addr).await?;
+    let bootstraper_addr = common::get_bootstraper_address()?;
+
+    let neighbours = common::neighbours::fetch_neighbours_with_retries(node_addr, bootstraper_addr).await;
 
     info!("Fetched neighbours: {:?}", neighbours);
 
     let udp_socket = UdpSocket::bind(node_addr)
         .await
         .context("Failed to bind UDP socket to node address")?;
+    
+    let reliable_udp_socket = common::reliable::ReliableUdpSocket::new(udp_socket);
 
-    let state = State::new(neighbours, udp_socket);
+    let state = State::new(neighbours, reliable_udp_socket);
 
     node::run_node(state).await?;
 
