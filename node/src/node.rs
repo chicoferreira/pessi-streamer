@@ -1,6 +1,6 @@
 use std::net::{IpAddr, SocketAddr};
 
-use common::packet::NodePacket;
+use common::packet::{ClientPacket, NodePacket};
 use common::reliable::ReliableUdpSocket;
 use log::{error, info, trace};
 
@@ -10,6 +10,7 @@ pub struct State {
     /// List of neighbours
     neighbours: Vec<IpAddr>,
     socket: ReliableUdpSocket,
+    available_videos: Vec<(u8, String)>,
 }
 
 impl State {
@@ -17,11 +18,12 @@ impl State {
         Self {
             neighbours,
             socket: udp_socket,
+            available_videos: vec![],
         }
     }
 }
 
-pub async fn run_node(state: State) -> anyhow::Result<()> {
+pub async fn run_node(mut state: State) -> anyhow::Result<()> {
     info!("Waiting for packets on {}...", state.socket.local_addr()?);
 
     let mut buf = [0u8; 1024];
@@ -41,15 +43,24 @@ pub async fn run_node(state: State) -> anyhow::Result<()> {
         match packet {
             NodePacket::FloodPacket { hops, millis_created_at_server, videos_available } => {
                 info!("Received flood packet from {} with {} hops and {} videos", addr, hops, videos_available.len());
+                state.available_videos.clone_from(&videos_available);
                 controlled_flood(&state, addr, hops, millis_created_at_server, videos_available).await;
-            },
-            NodePacket::ClientPing { .. } | NodePacket::RedirectToServer(_) => todo!()
+            }
+            NodePacket::ClientPing { sequence_number } => {
+                info!("Received ping from {}", addr);
+                let packet = ClientPacket::VideoList {
+                    sequence_number,
+                    videos: state.available_videos.clone(),
+                };
+                state.socket.send_reliable(&packet, addr).await?;
+            }
+            NodePacket::RedirectToServer(_) => todo!()
         }
     }
 }
 
 /// Controlled flood consists of sending a packet to all neighbours except the one that sent it to us
-async fn controlled_flood(state: &State, peer_addr: SocketAddr, hops: u8, millis_created_at_server: u128, videos_available: Vec<String>) {
+async fn controlled_flood(state: &State, peer_addr: SocketAddr, hops: u8, millis_created_at_server: u128, videos_available: Vec<(u8, String)>) {
     let flood_packet = NodePacket::FloodPacket {
         hops: hops + 1,
         millis_created_at_server,

@@ -82,8 +82,8 @@ impl State {
         }))
     }
 
-    pub fn get_video_list(&self) -> Vec<String> {
-        self.videos.iter().map(|entry| entry.value().name.clone()).collect()
+    pub fn get_video_list(&self) -> Vec<(u8, String)> {
+        self.videos.iter().map(|entry| (*entry.key(), entry.value().name.clone())).collect()
     }
 }
 

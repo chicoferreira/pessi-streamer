@@ -8,7 +8,7 @@ pub enum NodePacket {
     FloodPacket {
         hops: u8,
         millis_created_at_server: u128,
-        videos_available: Vec<String>,
+        videos_available: Vec<(u8, String)>,
     },
     /// Ping packets sent by clients
     /// The node will answer with `ClientPacket::VideoList`
