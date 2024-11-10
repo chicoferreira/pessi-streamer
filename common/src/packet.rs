@@ -10,6 +10,15 @@ pub enum NodePacket {
         millis_created_at_server: u128,
         videos_available: Vec<String>,
     },
+    /// Ping packets sent by clients
+    /// The node will answer with `ClientPacket::VideoList`
+    ClientPing {
+        /// The sequence number of the ping packet
+        /// Used to match the response with the request
+        sequence_number: u64,
+    },
+    /// A packet to be redirected to the server
+    RedirectToServer(ServerPacket),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -25,14 +34,21 @@ pub struct BootstraperNeighboursResponse(pub Vec<IpAddr>);
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientPacket {
     /// A packet containing video data
-    VideoPacket(Vec<u8>),
+    VideoPacket {
+        stream_id: u8,
+        stream_data: Vec<u8>,
+    },
+    VideoList {
+        sequence_number: u64,
+        videos: Vec<(u8, String)>,
+    },
 }
 
 /// Packets that a server can receive
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerPacket {
     /// Request to start a video
-    RequestVideo(String),
+    RequestVideo(u8),
     /// Request to stop a video
-    StopVideo(String),
+    StopVideo(u8),
 }

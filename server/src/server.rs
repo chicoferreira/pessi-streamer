@@ -5,13 +5,22 @@ use dashmap::DashMap;
 use log::{debug, error, info};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+
+struct Video {
+    /// The id of the video stream
+    name: String,
+    /// The path to the video file
+    interested: Vec<SocketAddr>,
+}
 
 #[derive(Clone)]
 pub struct State {
     /// Map of video paths to interested subscribers
-    clients: Arc<DashMap<String, Vec<SocketAddr>>>,
+    videos: Arc<DashMap<u8, Video>>,
+    last_video_id: Arc<AtomicU8>,
     clients_socket: ReliableUdpSocket,
     neighbours: Arc<Vec<SocketAddr>>,
 }
@@ -20,8 +29,20 @@ impl State {
     pub fn new(clients_socket: ReliableUdpSocket, neighbours: Vec<SocketAddr>) -> Self {
         Self {
             clients_socket,
-            clients: Arc::new(DashMap::new()),
+            videos: Arc::new(DashMap::new()),
+            last_video_id: Arc::new(AtomicU8::new(0)),
             neighbours: Arc::new(neighbours),
+        }
+    }
+
+    fn get_next_video_id(&self) -> u8 {
+        self.last_video_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn new_video(&self, name: String) -> Video {
+        Video {
+            name,
+            interested: Vec::new(),
         }
     }
 
@@ -31,7 +52,8 @@ impl State {
             .strip_prefix(video_folder)?
             .to_str().unwrap().to_string();
 
-        self.clients.insert(video_name.clone(), Vec::new());
+        let id = self.get_next_video_id();
+        self.videos.insert(id, self.new_video(video_name.clone()));
 
         let state = self.clone();
 
@@ -39,11 +61,21 @@ impl State {
             let mut buf = [0u8; 65536];
             loop {
                 if let Ok(n) = video_process.recv(&mut buf).await {
-                    let clients_list = state.clients.get(&video_name).map(|v| v.clone()).unwrap_or_default();
-                    let packet = ClientPacket::VideoPacket(buf[..n].to_vec());
+                    if let Some(video) = state.videos.get(&id) {
+                        if video.interested.is_empty() {
+                            continue;
+                        }
 
-                    if let Err(e) = state.clients_socket.send_unreliable_broadcast(&packet, &clients_list).await {
-                        error!("Failed to send video packet: {}", e);
+                        let stream_data = buf[..n].to_vec();
+
+                        let packet = ClientPacket::VideoPacket {
+                            stream_id: id,
+                            stream_data,
+                        };
+
+                        if let Err(e) = state.clients_socket.send_unreliable_broadcast(&packet, &video.interested).await {
+                            error!("Failed to send video packet: {}", e);
+                        }
                     }
                 }
             }
@@ -51,7 +83,7 @@ impl State {
     }
 
     pub fn get_video_list(&self) -> Vec<String> {
-        self.clients.iter().map(|entry| entry.key().clone()).collect()
+        self.videos.iter().map(|entry| entry.value().name.clone()).collect()
     }
 }
 
@@ -75,16 +107,15 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
         };
 
         match packet {
-            ServerPacket::RequestVideo(video_name) => {
-                info!("Received request to start video {}", video_name);
-                state.clients
-                    .entry(video_name)
-                    .or_insert_with(Vec::new)
-                    .push(socket_addr);
+            ServerPacket::RequestVideo(video_id) => {
+                info!("Received request to start video {}", video_id);
+                if let Some(mut video) = state.videos.get_mut(&video_id) {
+                    video.interested.push(socket_addr);
+                }
             }
-            ServerPacket::StopVideo(video_path) => {
-                if let Some(mut subscribers) = state.clients.get_mut(&video_path) {
-                    subscribers.retain(|&subscriber| subscriber != socket_addr);
+            ServerPacket::StopVideo(video_id) => {
+                if let Some(mut subscribers) = state.videos.get_mut(&video_id) {
+                    subscribers.interested.retain(|&subscriber| subscriber != socket_addr);
                 }
             }
         }

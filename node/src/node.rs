@@ -42,7 +42,8 @@ pub async fn run_node(state: State) -> anyhow::Result<()> {
             NodePacket::FloodPacket { hops, millis_created_at_server, videos_available } => {
                 info!("Received flood packet from {} with {} hops and {} videos", addr, hops, videos_available.len());
                 controlled_flood(&state, addr, hops, millis_created_at_server, videos_available).await;
-            }
+            },
+            NodePacket::ClientPing { .. } | NodePacket::RedirectToServer(_) => todo!()
         }
     }
 }
