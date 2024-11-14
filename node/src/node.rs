@@ -42,7 +42,7 @@ pub async fn run_node(mut state: State) -> anyhow::Result<()> {
 
         match packet {
             NodePacket::FloodPacket { hops, millis_created_at_server, videos_available } => {
-                info!("Received flood packet from {} with {} hops and {} videos", addr, hops, videos_available.len());
+                info!("Received flood packet from {} ({}) with {} hops and {} videos", addr, millis_created_at_server, hops, videos_available.len());
                 state.available_videos.clone_from(&videos_available);
                 controlled_flood(&state, addr, hops, millis_created_at_server, videos_available).await;
             }
@@ -68,13 +68,11 @@ async fn controlled_flood(state: &State, peer_addr: SocketAddr, hops: u8, millis
     };
 
     for addr in &state.neighbours {
-        // We don't want to send the packet back to the peer that sent it to us, evicting cycles
         if *addr == peer_addr.ip() {
             continue;
         }
 
-        let packet = bincode::serialize(&flood_packet).unwrap();
-        match state.socket.send_reliable(&packet, SocketAddr::new(*addr, common::PORT)).await {
+        match state.socket.send_reliable(&flood_packet, SocketAddr::new(*addr, common::PORT)).await {
             Ok(_) => {
                 trace!("Sent flood packet to {}", addr);
             }

@@ -151,14 +151,6 @@ pub mod flood {
             };
 
             state.clients_socket.send_unreliable_broadcast(&packet, &state.neighbours).await?;
-
-            for addr in state.neighbours.iter() {
-                debug!("Sending flood packet to neighbour {}", addr);
-                if let Err(e) = state.clients_socket.send_reliable(&packet, *addr).await {
-                    error!("Failed to send flood packet to neighbour {}: {}", addr, e);
-                }
-            }
-
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
