@@ -1,4 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(rustdoc::missing_crate_level_docs)]
 
 use crate::State;
@@ -54,8 +53,16 @@ impl eframe::App for MyApp {
                     for (stream_id, stream_name) in streams.iter() {
                         ui.horizontal(|ui| {
                             ui.label(format!("{}: {}", stream_id, stream_name));
-                            if ui.button("Play").clicked() {}
-                            if ui.button("Stop").clicked() {}
+                            if ui.button("Play").clicked() {
+                                self.state.start_playing(*stream_id);
+                            }
+                            if ui.button("Stop").clicked() {
+                                // self.state.stop_playing(stream_id);
+                            }
+                            self.state.video_processes.get(stream_id).map(|process| {
+                                let bytes = bytefmt::format(process.bytes_received() as u64);
+                                ui.label(format!("Bytes received: {bytes}"));
+                            });
                         });
                     }
                 } else {

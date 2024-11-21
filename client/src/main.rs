@@ -8,7 +8,7 @@ use circular_buffer::CircularBuffer;
 use clap::Parser;
 use common::packet::{ClientPacket, NodePacket, Packet, ServerPacket};
 use dashmap::DashMap;
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use std::cmp;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::AtomicU64;
@@ -22,13 +22,15 @@ use tokio::time::Instant;
 struct Args {
     /// Name of the stream to watch
     #[arg(long)]
-    stream: String, // Todo: make this optional when ui is true
+    stream: Option<String>,
+
     /// Possible servers to connect to
     #[arg(short, long)]
     servers: Vec<IpAddr>,
-    /// Open program ui
-    #[arg(short, long, default_value_t = true)]
-    ui: bool,
+
+    /// If the UI should be displayed
+    #[arg(short, long, default_value_t = false)]
+    no_ui: bool,
 }
 
 #[derive(Default)]
@@ -95,6 +97,31 @@ struct State {
 }
 
 impl State {
+    async fn wait_for_best_server_and_video_list(&self, video_id: u8) -> (u8, SocketAddr) {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            if let Some(best_node_addr) = self.select_best_node() {
+                return (video_id, best_node_addr);
+            }
+        }
+    }
+
+    pub fn start_playing(&self, video_id: u8) {
+        let state = self.clone();
+        tokio::spawn(async move {
+            let (video_id, best_node_addr) = state.wait_for_best_server_and_video_list(video_id).await;
+            info!("Selected server {} for video {}", best_node_addr, video_id);
+
+            if let Err(e) = state.socket.send_reliable(&Packet::ServerPacket(ServerPacket::RequestVideo(video_id)), best_node_addr).await {
+                error!("Failed to send request video to {}: {}", best_node_addr, e);
+            } else if let Err(e) = state.start_video_process(video_id) {
+                error!("Failed to start video process: {}", e);
+            }
+        });
+    }
+}
+
+impl State {
     fn new(socket: common::reliable::ReliableUdpSocket, servers: Vec<IpAddr>) -> Self {
         let servers = servers.into_iter().map(|addr| {
             let socket_addr = SocketAddr::new(addr, common::PORT);
@@ -116,6 +143,7 @@ impl State {
 
         if let Some((_, (addr, start_time))) = self.pending_pings.remove(&sequence_number) {
             let rtt = now.duration_since(start_time).as_millis();
+            debug!("Received ping answer from {} in {}ms", addr, rtt);
             if let Some(node) = self.servers.get(&addr) {
                 node.connection.lock().unwrap().get_or_insert(Default::default()).metrics.add_rtt(rtt);
             }
@@ -131,15 +159,6 @@ impl State {
 
     fn set_video_list(&self, video_list: Vec<(u8, String)>) {
         *self.video_list.write().unwrap() = Some(video_list);
-    }
-
-    fn get_video_id(&self, name: &str) -> Option<u8> {
-        self.video_list
-            .read()
-            .unwrap()
-            .as_ref()
-            .and_then(|list| list.iter().find(|(_, stream_name)| stream_name == name)
-                .map(|(id, _)| *id))
     }
 
     fn start_video_process(&self, video_id: u8) -> anyhow::Result<()> {
@@ -177,8 +196,7 @@ async fn handle_packet_task(state: State) {
                     warn!("Received video packet for unwanted stream {}", stream_id);
                 }
             }
-            Ok(Some((Packet::ClientPacket(ClientPacket::VideoList { sequence_number, videos }), addr))) => {
-                info!("Received video list from {}", addr);
+            Ok(Some((Packet::ClientPacket(ClientPacket::VideoList { sequence_number, videos }), _addr))) => {
                 state.handle_ping_answer(sequence_number);
                 state.set_video_list(videos);
             }
@@ -191,17 +209,6 @@ async fn handle_packet_task(state: State) {
                 error!("Received unexpected packet from {}: {:?}", addr, packet),
             Ok(Some((Packet::ServerPacket(packet), addr))) =>
                 error!("Received unexpected packet from {}: {:?}", addr, packet),
-        }
-    }
-}
-
-async fn wait_for_best_server_and_video_list(video_stream: &str, state: &State) -> (u8, SocketAddr) {
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        if let Some(video_id) = state.get_video_id(video_stream) {
-            if let Some(best_node_addr) = state.select_best_node() {
-                return (video_id, best_node_addr);
-            }
         }
     }
 }
@@ -222,19 +229,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(start_ping_nodes_task(state.clone()));
     tokio::spawn(handle_packet_task(state.clone()));
 
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        let (video_id, best_node_addr) = wait_for_best_server_and_video_list(&args.stream, &state_clone).await;
-        info!("Selected server {} for video {}", best_node_addr, video_id);
-
-        if let Err(e) = state_clone.socket.send_reliable(&Packet::ServerPacket(ServerPacket::RequestVideo(video_id)), best_node_addr).await {
-            error!("Failed to send request video to {}: {}", best_node_addr, e);
-        } else if let Err(e) = state_clone.start_video_process(video_id) {
-            error!("Failed to start video process: {}", e);
-        }
-    });
-
-    if args.ui {
+    if !args.no_ui {
         if let Err(e) = ui::run_ui(state) {
             error!("Failed to run UI: {}", e);
         }

@@ -70,7 +70,10 @@ pub async fn run_node(mut state: State) -> anyhow::Result<()> {
             Packet::ServerPacket(server_packet) => {
                 match server_packet {
                     ServerPacket::RequestVideo(video_id) => {
-                        state.interested.entry(video_id).or_insert(vec![]).push(addr);
+                        let mut interested = state.interested.entry(video_id).or_insert(vec![]);
+                        if !interested.value().contains(&addr) {
+                            interested.value_mut().push(addr);
+                        }
                         info!("Received request to start video {} from {}", video_id, addr);
                     }
                     ServerPacket::StopVideo(video_id) => {
@@ -89,9 +92,8 @@ pub async fn run_node(mut state: State) -> anyhow::Result<()> {
             Packet::VideoPacket { stream_id, stream_data } => {
                 trace!("Received video packet for stream {}", stream_id);
                 if let Some(subscribers) = state.interested.get(&stream_id) {
-                    for subscriber in subscribers.iter() {
-                        state.socket.send_unreliable(&Packet::VideoPacket { stream_id, stream_data: stream_data.clone() }, subscriber.clone()).await?;
-                    }
+                    let subscribers = subscribers.clone();
+                    state.socket.send_unreliable_broadcast(&Packet::VideoPacket { stream_id, stream_data }, &subscribers).await?;
                 }
             }
             _ => {

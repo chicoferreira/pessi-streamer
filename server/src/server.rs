@@ -2,7 +2,7 @@ use crate::video::VideoProcess;
 use common::packet::{Packet, ServerPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU8;
@@ -78,7 +78,7 @@ impl State {
                             error!("Failed to send video packet: {}", e);
                         }
 
-                        debug!("Sent {} video packet ({stream_data_len} bytes) to {} subscribers", video.name, video.interested.len());
+                        trace!("Sent {} video packet ({stream_data_len} bytes) to {} subscribers", video.name, video.interested.len());
                     }
                 }
             }
@@ -113,7 +113,9 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
             Packet::ServerPacket(ServerPacket::RequestVideo(video_id)) => {
                 info!("Received request to start video {}", video_id);
                 if let Some(mut video) = state.videos.get_mut(&video_id) {
-                    video.interested.push(socket_addr);
+                    if !video.interested.contains(&socket_addr) {
+                        video.interested.push(socket_addr);
+                    }
                 }
             }
             Packet::ServerPacket(ServerPacket::StopVideo(video_id)) => {

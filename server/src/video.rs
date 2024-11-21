@@ -1,11 +1,11 @@
-use std::io::BufRead;
-use std::path::PathBuf;
-use std::process::Command;
 use anyhow::Context;
 use ffmpeg_sidecar::child::FfmpegChild;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::version::ffmpeg_version;
 use log::info;
+use std::io::BufRead;
+use std::path::PathBuf;
+use std::process::Command;
 use tokio::net::UdpSocket;
 
 pub struct VideoProcess {
@@ -64,7 +64,7 @@ pub fn auto_detect_codec() -> Option<String> {
 
     let encoder_list = list_encoders();
 
-    ["h264_videotoolbox", "h264_nvenc", "h264", "libx264"]
+    ["hevc_videotoolbox", "h264_nvenc", "h264", "libx264"]
         .iter()
         .find(|codec| encoder_list.contains(&codec.to_string()))
         .map(|codec| codec.to_string())
@@ -83,7 +83,6 @@ pub fn launch_video_process(video_path: PathBuf, send_to_path: &str, codec_video
         .codec_video(codec_video)
         .arg("-b:v").arg("8M")
         .codec_audio("aac")
-        // send keyframes every 30 frames
         .arg("-g").arg("30")
         .format("mpegts")
         .output(send_to_path)
