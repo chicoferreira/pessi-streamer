@@ -1,5 +1,6 @@
 mod video;
 mod monitor;
+mod ui;
 
 use crate::video::VideoPlayer;
 use anyhow::Context;
@@ -9,7 +10,7 @@ use common::packet::{ClientPacket, NodePacket, ServerPacket};
 use dashmap::DashMap;
 use log::{error, info, trace, warn};
 use std::cmp;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::AtomicU64;
 use std::sync::{atomic, Arc, Mutex, RwLock};
 use tokio::net::UdpSocket;
@@ -20,11 +21,11 @@ use tokio::time::Instant;
 #[command(version, about, long_about = None)]
 struct Args {
     /// Name of the stream to watch
-    #[arg(short, long)]
-    stream: String,
+    #[arg(long)]
+    stream: String, // Todo: make this optional when ui is true
     /// Possible servers to connect to
     #[arg(short, long)]
-    servers: Vec<SocketAddr>,
+    servers: Vec<IpAddr>,
     /// Open program ui
     #[arg(short, long, default_value_t = true)]
     ui: bool,
@@ -97,16 +98,21 @@ struct State {
     /// The current sequence number to send ClientPing packets
     ping_sequence_number: Arc<AtomicU64>,
     /// The list of possible streams received by the nodes (stream_id, stream_name)
-    video_list: Arc<RwLock<Vec<(u8, String)>>>,
+    video_list: Arc<RwLock<Option<Vec<(u8, String)>>>>,
     /// The list of currently playing video processes
     video_processes: Arc<DashMap<u8, VideoPlayer>>,
 }
 
 impl State {
-    fn new(socket: common::reliable::ReliableUdpSocket, servers: Vec<SocketAddr>) -> Self {
+    fn new(socket: common::reliable::ReliableUdpSocket, servers: Vec<IpAddr>) -> Self {
+        let servers = servers.into_iter().map(|addr| {
+            let socket_addr = SocketAddr::new(addr, common::PORT);
+            (socket_addr, Node::new(socket_addr))
+        }).collect();
+
         Self {
             socket,
-            servers: Arc::new(servers.into_iter().map(|addr| (addr, Node::new(addr))).collect()),
+            servers: Arc::new(servers),
             pending_pings: Arc::new(Default::default()),
             ping_sequence_number: Arc::new(AtomicU64::new(0)),
             video_list: Arc::new(Default::default()),
@@ -133,11 +139,16 @@ impl State {
     }
 
     fn set_video_list(&self, video_list: Vec<(u8, String)>) {
-        *self.video_list.write().unwrap() = video_list;
+        *self.video_list.write().unwrap() = Some(video_list);
     }
 
     fn get_video_id(&self, name: &str) -> Option<u8> {
-        self.video_list.read().unwrap().iter().find(|(_, video_name)| video_name == name).map(|(id, _)| *id)
+        self.video_list
+            .read()
+            .unwrap()
+            .as_ref()
+            .and_then(|list| list.iter().find(|(_, stream_name)| stream_name == name)
+                .map(|(id, _)| *id))
     }
 
     fn start_video_process(&self, video_id: u8) -> anyhow::Result<()> {
@@ -147,13 +158,16 @@ impl State {
 }
 
 async fn start_ping_nodes_task(state: State) {
-    for node in state.servers.iter() {
-        let sequence_number = state.ping_sequence_number.fetch_add(1, atomic::Ordering::Relaxed);
-        let packet = NodePacket::ClientPing { sequence_number };
-        if let Err(e) = state.socket.send_reliable(&packet, node.addr).await {
-            error!("Failed to send ping to {}: {}", node.addr, e);
-        } else {
-            state.pending_pings.insert(sequence_number, (node.addr, Instant::now()));
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        for node in state.servers.iter() {
+            let sequence_number = state.ping_sequence_number.fetch_add(1, atomic::Ordering::Relaxed);
+            let packet = NodePacket::ClientPing { sequence_number };
+            if let Err(e) = state.socket.send_reliable(&packet, node.addr).await {
+                error!("Failed to send ping to {}: {}", node.addr, e);
+            } else {
+                state.pending_pings.insert(sequence_number, (node.addr, Instant::now()));
+            }
         }
     }
 }
@@ -205,31 +219,31 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    // Server
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.context("Failed to bind UDP socket")?;
+    let socket = UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 2), 0)).await.context("Failed to bind UDP socket")?;
     let socket = common::reliable::ReliableUdpSocket::new(socket);
 
     let state = State::new(socket.clone(), args.servers);
 
-    tokio::spawn({
-        let state = state.clone();
-        async move {
-            start_ping_nodes_task(state).await;
+    tokio::spawn(start_ping_nodes_task(state.clone()));
+    tokio::spawn(handle_packet_task(state.clone()));
+
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        let (video_id, best_node_addr) = wait_for_best_server_and_video_list(&args.stream, &state_clone).await;
+        info!("Selected server {} for video {}", best_node_addr, video_id);
+
+        if let Err(e) = state_clone.socket.send_reliable(&NodePacket::RedirectToServer(ServerPacket::RequestVideo(video_id)), best_node_addr).await {
+            error!("Failed to send request video to {}: {}", best_node_addr, e);
+        } else if let Err(e) = state_clone.start_video_process(video_id) {
+            error!("Failed to start video process: {}", e);
         }
     });
 
-    tokio::spawn({
-        let state = state.clone();
-        async move {
-            handle_packet_task(state).await;
+    if args.ui {
+        if let Err(e) = ui::run_ui(state) {
+            error!("Failed to run UI: {}", e);
         }
-    });
-
-    let (video_id, best_node_addr) = wait_for_best_server_and_video_list(&args.stream, &state).await;
-    info!("Selected server {} for video {}", best_node_addr, video_id);
-
-    state.socket.send_reliable(&NodePacket::RedirectToServer(ServerPacket::RequestVideo(video_id)), best_node_addr).await?;
-    state.start_video_process(video_id)?;
+    }
 
     Ok(())
 }

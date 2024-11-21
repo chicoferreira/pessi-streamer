@@ -19,16 +19,12 @@ pub enum NodePacket {
     },
     /// A packet to be redirected to the server
     RedirectToServer(ServerPacket),
+    /// A video packet that contains video data
+    VideoPacket {
+        stream_id: u8,
+        stream_data: Vec<u8>,
+    },
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum BootstraperPacket {
-    /// Request to get neighbours
-    RequestNeighbours,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BootstraperNeighboursResponse(pub Vec<IpAddr>);
 
 /// Packets that a client can receive
 #[derive(Serialize, Deserialize, Debug)]
@@ -52,3 +48,12 @@ pub enum ServerPacket {
     /// Request to stop a video
     StopVideo(u8),
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum BootstraperPacket {
+    /// Request to get neighbours
+    RequestNeighbours,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BootstraperNeighboursResponse(pub Vec<IpAddr>);

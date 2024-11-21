@@ -1,5 +1,5 @@
 use crate::video::VideoProcess;
-use common::packet::{ClientPacket, ServerPacket};
+use common::packet::{NodePacket, ServerPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
 use log::{debug, error, info};
@@ -68,7 +68,7 @@ impl State {
 
                         let stream_data = buf[..n].to_vec();
 
-                        let packet = ClientPacket::VideoPacket {
+                        let packet = NodePacket::VideoPacket {
                             stream_id: id,
                             stream_data,
                         };

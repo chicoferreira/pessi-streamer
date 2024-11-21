@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use log::{error, info};
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::sync::atomic::AtomicU64;
