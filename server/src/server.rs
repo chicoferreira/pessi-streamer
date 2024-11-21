@@ -1,5 +1,5 @@
 use crate::video::VideoProcess;
-use common::packet::{NodePacket, ServerPacket};
+use common::packet::{Packet, ServerPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
 use log::{debug, error, info};
@@ -67,8 +67,9 @@ impl State {
                         }
 
                         let stream_data = buf[..n].to_vec();
+                        let stream_data_len = stream_data.len();
 
-                        let packet = NodePacket::VideoPacket {
+                        let packet = Packet::VideoPacket {
                             stream_id: id,
                             stream_data,
                         };
@@ -76,6 +77,8 @@ impl State {
                         if let Err(e) = state.clients_socket.send_unreliable_broadcast(&packet, &video.interested).await {
                             error!("Failed to send video packet: {}", e);
                         }
+
+                        debug!("Sent {} video packet ({stream_data_len} bytes) to {} subscribers", video.name, video.interested.len());
                     }
                 }
             }
@@ -107,16 +110,19 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
         };
 
         match packet {
-            ServerPacket::RequestVideo(video_id) => {
+            Packet::ServerPacket(ServerPacket::RequestVideo(video_id)) => {
                 info!("Received request to start video {}", video_id);
                 if let Some(mut video) = state.videos.get_mut(&video_id) {
                     video.interested.push(socket_addr);
                 }
             }
-            ServerPacket::StopVideo(video_id) => {
+            Packet::ServerPacket(ServerPacket::StopVideo(video_id)) => {
                 if let Some(mut subscribers) = state.videos.get_mut(&video_id) {
                     subscribers.interested.retain(|&subscriber| subscriber != socket_addr);
                 }
+            }
+            _ => {
+                error!("Received unexpected packet from {}: {:?}", socket_addr, packet);
             }
         }
     }
@@ -125,8 +131,8 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 
 pub mod flood {
     use crate::server::State;
-    use common::packet::NodePacket;
-    use log::{debug, error, info};
+    use common::packet::{NodePacket, Packet};
+    use log::{error, info};
     use std::time::{Duration, SystemTimeError};
 
     fn get_current_millis() -> Result<u128, SystemTimeError> {
@@ -144,11 +150,11 @@ pub mod flood {
                 continue;
             };
 
-            let packet = NodePacket::FloodPacket {
+            let packet = Packet::NodePacket(NodePacket::FloodPacket {
                 hops: 0,
                 millis_created_at_server: now,
                 videos_available: state.get_video_list(),
-            };
+            });
 
             state.clients_socket.send_unreliable_broadcast(&packet, &state.neighbours).await?;
             tokio::time::sleep(Duration::from_secs(5)).await;

@@ -6,7 +6,7 @@ use crate::video::VideoPlayer;
 use anyhow::Context;
 use circular_buffer::CircularBuffer;
 use clap::Parser;
-use common::packet::{ClientPacket, NodePacket, ServerPacket};
+use common::packet::{ClientPacket, NodePacket, Packet, ServerPacket};
 use dashmap::DashMap;
 use log::{error, info, trace, warn};
 use std::cmp;
@@ -70,15 +70,6 @@ impl Node {
             addr,
             connection: Arc::new(Mutex::new(None)),
             pending_pings: Arc::new(DashMap::new()),
-        }
-    }
-
-    async fn handle_ping_answer(&mut self, sequence_number: u64) {
-        let now = Instant::now();
-
-        if let Some((_, start_time)) = self.pending_pings.remove(&sequence_number) {
-            let rtt = now.duration_since(start_time).as_millis();
-            self.connection.lock().unwrap().get_or_insert(Default::default()).metrics.add_rtt(rtt);
         }
     }
 
@@ -162,7 +153,7 @@ async fn start_ping_nodes_task(state: State) {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         for node in state.servers.iter() {
             let sequence_number = state.ping_sequence_number.fetch_add(1, atomic::Ordering::Relaxed);
-            let packet = NodePacket::ClientPing { sequence_number };
+            let packet = Packet::NodePacket(NodePacket::ClientPing { sequence_number });
             if let Err(e) = state.socket.send_reliable(&packet, node.addr).await {
                 error!("Failed to send ping to {}: {}", node.addr, e);
             } else {
@@ -176,7 +167,7 @@ async fn handle_packet_task(state: State) {
     let mut buf = [0u8; 16384];
     loop {
         match state.socket.receive(&mut buf).await {
-            Ok(Some((ClientPacket::VideoPacket { stream_id, stream_data }, addr))) => {
+            Ok(Some((Packet::VideoPacket { stream_id, stream_data }, addr))) => {
                 trace!("Received video packet from {}", addr);
                 if let Some(mut video_process) = state.video_processes.get_mut(&stream_id) {
                     if let Err(e) = video_process.write(&stream_data).await {
@@ -186,7 +177,7 @@ async fn handle_packet_task(state: State) {
                     warn!("Received video packet for unwanted stream {}", stream_id);
                 }
             }
-            Ok(Some((ClientPacket::VideoList { sequence_number, videos }, addr))) => {
+            Ok(Some((Packet::ClientPacket(ClientPacket::VideoList { sequence_number, videos }), addr))) => {
                 info!("Received video list from {}", addr);
                 state.handle_ping_answer(sequence_number);
                 state.set_video_list(videos);
@@ -196,6 +187,10 @@ async fn handle_packet_task(state: State) {
                 error!("Failed to receive packet: {}", e);
                 continue;
             }
+            Ok(Some((Packet::NodePacket(packet), addr))) =>
+                error!("Received unexpected packet from {}: {:?}", addr, packet),
+            Ok(Some((Packet::ServerPacket(packet), addr))) =>
+                error!("Received unexpected packet from {}: {:?}", addr, packet),
         }
     }
 }
@@ -232,7 +227,7 @@ async fn main() -> anyhow::Result<()> {
         let (video_id, best_node_addr) = wait_for_best_server_and_video_list(&args.stream, &state_clone).await;
         info!("Selected server {} for video {}", best_node_addr, video_id);
 
-        if let Err(e) = state_clone.socket.send_reliable(&NodePacket::RedirectToServer(ServerPacket::RequestVideo(video_id)), best_node_addr).await {
+        if let Err(e) = state_clone.socket.send_reliable(&Packet::ServerPacket(ServerPacket::RequestVideo(video_id)), best_node_addr).await {
             error!("Failed to send request video to {}: {}", best_node_addr, e);
         } else if let Err(e) = state_clone.start_video_process(video_id) {
             error!("Failed to start video process: {}", e);
