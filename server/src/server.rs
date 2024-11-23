@@ -95,9 +95,10 @@ impl State {
                         }
 
                         debug!(
-                            "Sent video packet (video={}, seq={}) to {} subscribers",
+                            "Sent video packet (video={}, seq={}, size={}) to {} subscribers",
                             id,
                             video.sequence_number,
+                            n,
                             video.interested.len()
                         );
                     }
@@ -135,7 +136,7 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 
         match packet {
             Packet::ServerPacket(ServerPacket::RequestVideo(video_id)) => {
-                info!("Received request to start video {}", video_id);
+                info!("Received request to start video {} from {}", video_id, socket_addr);
                 if let Some(mut video) = state.videos.get_mut(&video_id) {
                     if !video.interested.contains(&socket_addr) {
                         video.interested.push(socket_addr);
@@ -143,6 +144,7 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
                 }
             }
             Packet::ServerPacket(ServerPacket::StopVideo(video_id)) => {
+                info!("Received request to stop video {} from {}", video_id, socket_addr);
                 if let Some(mut subscribers) = state.videos.get_mut(&video_id) {
                     subscribers
                         .interested

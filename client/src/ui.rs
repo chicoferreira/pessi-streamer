@@ -49,7 +49,7 @@ impl eframe::App for MyApp {
 
             ui.heading("Available Streams:");
             if let Ok(streams) = self.state.video_list.read() {
-                if let Some(streams) = streams.as_ref() {
+                if streams.len() > 0 {
                     for (stream_id, stream_name) in streams.iter() {
                         ui.horizontal(|ui| {
                             ui.label(format!("{}: {}", stream_id, stream_name));

@@ -103,7 +103,7 @@ struct State {
     /// The current sequence number to send ClientPing packets
     ping_sequence_number: Arc<AtomicU64>,
     /// The list of possible streams received by the nodes (stream_id, stream_name)
-    video_list: Arc<RwLock<Option<Vec<(u8, String)>>>>,
+    video_list: Arc<RwLock<Vec<(u8, String)>>>,
     /// The list of currently playing video processes
     playing_videos: Arc<DashMap<u8, PlayingVideo>>,
 }
@@ -228,7 +228,7 @@ impl State {
     }
 
     fn set_video_list(&self, video_list: Vec<(u8, String)>) {
-        *self.video_list.write().unwrap() = Some(video_list);
+        *self.video_list.write().unwrap() = video_list;
     }
 
     fn start_video_process(&self, source: SocketAddr, video_id: u8) -> anyhow::Result<()> {
@@ -278,6 +278,10 @@ async fn handle_packet_task(state: State) {
                 addr,
             ))) => {
                 if let Some(mut video) = state.playing_videos.get_mut(&stream_id) {
+                    debug!(
+                        "Received video packet for stream {} (SEQ={}, DATA_LEN={})",
+                        stream_id, sequence_number, stream_data.len()
+                    );
                     if sequence_number != video.last_sequence_number + 1 {
                         warn!(
                             "Received video packet out of order (LAST={} NEW={}) for stream {}",

@@ -127,6 +127,11 @@ async fn handle_packet(state: &mut State, packet: Packet, addr: SocketAddr) -> a
 
             let expected = last_sequence_number + 1;
 
+            debug!(
+                "Received video packet (stream={}, seq={}, expected={}, n={}) from {}",
+                stream_id, sequence_number, expected, stream_data.len(), addr
+            );
+            
             if expected != sequence_number {
                 error!(
                     "Received out of order packet (expected {}, got {})",
