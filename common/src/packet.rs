@@ -6,6 +6,7 @@ pub enum Packet {
     /// A video packet that contains video data
     VideoPacket {
         stream_id: u8,
+        sequence_number: u64,
         stream_data: Vec<u8>,
     },
     /// Packets that only the node should receive

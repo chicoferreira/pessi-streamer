@@ -8,11 +8,12 @@ use circular_buffer::CircularBuffer;
 use clap::Parser;
 use common::packet::{ClientPacket, NodePacket, Packet, ServerPacket};
 use dashmap::DashMap;
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use std::cmp;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::AtomicU64;
 use std::sync::{atomic, Arc, Mutex, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
 
@@ -88,6 +89,7 @@ struct PlayingVideo {
     video_id: u8,
     source: SocketAddr,
     video_player: VideoPlayer,
+    last_sequence_number: u64,
 }
 
 #[derive(Clone)]
@@ -103,7 +105,7 @@ struct State {
     /// The list of possible streams received by the nodes (stream_id, stream_name)
     video_list: Arc<RwLock<Option<Vec<(u8, String)>>>>,
     /// The list of currently playing video processes
-    video_processes: Arc<DashMap<u8, PlayingVideo>>,
+    playing_videos: Arc<DashMap<u8, PlayingVideo>>,
 }
 
 impl State {
@@ -122,15 +124,15 @@ impl State {
             pending_pings: Arc::new(Default::default()),
             ping_sequence_number: Arc::new(AtomicU64::new(0)),
             video_list: Arc::new(Default::default()),
-            video_processes: Arc::new(Default::default()),
+            playing_videos: Arc::new(Default::default()),
         }
     }
 
-    async fn wait_for_best_server_and_video_list(&self, video_id: u8) -> (u8, SocketAddr) {
+    async fn wait_for_best_server_and_video_list(&self, _video_id: u8) -> SocketAddr {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             if let Some(best_node_addr) = self.select_best_node() {
-                return (video_id, best_node_addr);
+                return best_node_addr;
             }
         }
     }
@@ -157,7 +159,7 @@ impl State {
 
     pub async fn start_playing(&self, video_id: u8) {
         let state = self.clone();
-        let (video_id, best_node_addr) = state.wait_for_best_server_and_video_list(video_id).await;
+        let best_node_addr = state.wait_for_best_server_and_video_list(video_id).await;
         info!("Selected server {} for video {}", best_node_addr, video_id);
 
         if let Err(e) = state.request_start_video(best_node_addr, video_id).await {
@@ -179,7 +181,7 @@ impl State {
     }
 
     pub async fn stop_playing_id(&self, video_id: u8) {
-        if let Some((_, mut video)) = self.video_processes.remove(&video_id) {
+        if let Some((_, mut video)) = self.playing_videos.remove(&video_id) {
             self.stop_playing(&mut video).await;
         }
     }
@@ -231,12 +233,13 @@ impl State {
 
     fn start_video_process(&self, source: SocketAddr, video_id: u8) -> anyhow::Result<()> {
         let video_player = VideoPlayer::launch()?;
-        self.video_processes.insert(
+        self.playing_videos.insert(
             video_id,
             PlayingVideo {
                 video_id,
                 source,
                 video_player,
+                last_sequence_number: 0,
             },
         );
         Ok(())
@@ -269,17 +272,25 @@ async fn handle_packet_task(state: State) {
             Ok(Some((
                 Packet::VideoPacket {
                     stream_id,
+                    sequence_number,
                     stream_data,
                 },
                 addr,
             ))) => {
-                trace!("Received video packet from {}", addr);
-                if let Some(mut video) = state.video_processes.get_mut(&stream_id) {
+                if let Some(mut video) = state.playing_videos.get_mut(&stream_id) {
+                    if sequence_number != video.last_sequence_number + 1 {
+                        warn!(
+                            "Received video packet out of order (LAST={} NEW={}) for stream {}",
+                            video.last_sequence_number, sequence_number, stream_id
+                        );
+                    }
+                    video.last_sequence_number = sequence_number;
+                    
                     if let Err(e) = video.video_player.write(&stream_data).await {
                         error!("Failed to write video packet: {}", e);
                         state.stop_playing(&mut video).await;
                         drop(video);
-                        state.video_processes.remove(&stream_id);
+                        state.playing_videos.remove(&stream_id);
                     }
                 } else {
                     warn!("Received video packet for unwanted stream {}", stream_id);

@@ -60,7 +60,7 @@ impl eframe::App for MyApp {
                                 self.state.stop_playing_id_sync(*stream_id);
                             }
 
-                            if let Some(video) = self.state.video_processes.get(stream_id) {
+                            if let Some(video) = self.state.playing_videos.get(stream_id) {
                                 let bytes =
                                     bytefmt::format(video.video_player.bytes_received() as u64);
                                 ui.label(format!("Bytes received: {bytes}"));

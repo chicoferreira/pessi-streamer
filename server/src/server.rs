@@ -14,6 +14,7 @@ struct Video {
     name: String,
     /// The path to the video file
     interested: Vec<SocketAddr>,
+    sequence_number: u64,
 }
 
 #[derive(Clone)]
@@ -36,21 +37,30 @@ impl State {
     }
 
     fn get_next_video_id(&self) -> u8 {
-        self.last_video_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        self.last_video_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     fn new_video(&self, name: String) -> Video {
         Video {
             name,
             interested: Vec::new(),
+            sequence_number: 0,
         }
     }
 
-    pub async fn start_streaming_video(&self, video_path: PathBuf, video_folder: &PathBuf) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
+    pub async fn start_streaming_video(
+        &self,
+        video_path: PathBuf,
+        video_folder: &PathBuf,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
         let video_process = VideoProcess::new_video_process(video_path.clone()).await?;
-        let video_name = video_path.with_extension("")
+        let video_name = video_path
+            .with_extension("")
             .strip_prefix(video_folder)?
-            .to_str().unwrap().to_string();
+            .to_str()
+            .unwrap()
+            .to_string();
 
         let id = self.get_next_video_id();
         self.videos.insert(id, self.new_video(video_name.clone()));
@@ -61,24 +71,35 @@ impl State {
             let mut buf = [0u8; 65536];
             loop {
                 if let Ok(n) = video_process.recv(&mut buf).await {
-                    if let Some(video) = state.videos.get(&id) {
+                    if let Some(mut video) = state.videos.get_mut(&id) {
                         if video.interested.is_empty() {
                             continue;
                         }
 
+                        video.sequence_number += 1;
+
                         let stream_data = buf[..n].to_vec();
-                        let stream_data_len = stream_data.len();
 
                         let packet = Packet::VideoPacket {
                             stream_id: id,
+                            sequence_number: video.sequence_number,
                             stream_data,
                         };
 
-                        if let Err(e) = state.clients_socket.send_unreliable_broadcast(&packet, &video.interested).await {
+                        if let Err(e) = state
+                            .clients_socket
+                            .send_unreliable_broadcast(&packet, &video.interested)
+                            .await
+                        {
                             error!("Failed to send video packet: {}", e);
                         }
 
-                        trace!("Sent {} video packet ({stream_data_len} bytes) to {} subscribers", video.name, video.interested.len());
+                        debug!(
+                            "Sent video packet (video={}, seq={}) to {} subscribers",
+                            id,
+                            video.sequence_number,
+                            video.interested.len()
+                        );
                     }
                 }
             }
@@ -86,7 +107,10 @@ impl State {
     }
 
     pub fn get_video_list(&self) -> Vec<(u8, String)> {
-        self.videos.iter().map(|entry| (*entry.key(), entry.value().name.clone())).collect()
+        self.videos
+            .iter()
+            .map(|entry| (*entry.key(), entry.value().name.clone()))
+            .collect()
     }
 }
 
@@ -120,16 +144,20 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
             }
             Packet::ServerPacket(ServerPacket::StopVideo(video_id)) => {
                 if let Some(mut subscribers) = state.videos.get_mut(&video_id) {
-                    subscribers.interested.retain(|&subscriber| subscriber != socket_addr);
+                    subscribers
+                        .interested
+                        .retain(|&subscriber| subscriber != socket_addr);
                 }
             }
             _ => {
-                error!("Received unexpected packet from {}: {:?}", socket_addr, packet);
+                error!(
+                    "Received unexpected packet from {}: {:?}",
+                    socket_addr, packet
+                );
             }
         }
     }
 }
-
 
 pub mod flood {
     use crate::server::State;
@@ -158,7 +186,10 @@ pub mod flood {
                 videos_available: state.get_video_list(),
             });
 
-            state.clients_socket.send_unreliable_broadcast(&packet, &state.neighbours).await?;
+            state
+                .clients_socket
+                .send_unreliable_broadcast(&packet, &state.neighbours)
+                .await?;
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
