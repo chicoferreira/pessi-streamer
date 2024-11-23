@@ -54,15 +54,17 @@ impl eframe::App for MyApp {
                         ui.horizontal(|ui| {
                             ui.label(format!("{}: {}", stream_id, stream_name));
                             if ui.button("Play").clicked() {
-                                self.state.start_playing(*stream_id);
+                                self.state.start_playing_sync(*stream_id);
                             }
                             if ui.button("Stop").clicked() {
-                                // self.state.stop_playing(stream_id);
+                                self.state.stop_playing_id_sync(*stream_id);
                             }
-                            self.state.video_processes.get(stream_id).map(|process| {
-                                let bytes = bytefmt::format(process.bytes_received() as u64);
+
+                            if let Some(video) = self.state.video_processes.get(stream_id) {
+                                let bytes =
+                                    bytefmt::format(video.video_player.bytes_received() as u64);
                                 ui.label(format!("Bytes received: {bytes}"));
-                            });
+                            }
                         });
                     }
                 } else {

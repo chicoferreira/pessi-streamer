@@ -1,11 +1,11 @@
 use anyhow::Context;
-use log::info;
 use std::io;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, Command};
 
 pub struct VideoPlayer {
+    ffplay_child: Child,
     ffplay_stdin: ChildStdin,
     bytes_received: usize,
 }
@@ -13,18 +13,16 @@ pub struct VideoPlayer {
 impl VideoPlayer {
     pub fn launch() -> anyhow::Result<Self> {
         let mut ffplay = Command::new("ffplay")
-            .args(
-                "-f mpegts -i -".split(' '),
-            )
+            .args("-f mpegts -i -".split(' '))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .spawn().context("Couldn't spawn ffplay process.")?;
+            .spawn()
+            .context("Couldn't spawn ffplay process.")?;
 
         let ffplay_stdin = ffplay.stdin.take().context("Couldn't take ffplay stdin.")?;
 
-        tokio::spawn(Self::wait_to_close(ffplay));
-
         Ok(Self {
+            ffplay_child: ffplay,
             ffplay_stdin,
             bytes_received: 0,
         })
@@ -39,8 +37,7 @@ impl VideoPlayer {
         self.bytes_received
     }
 
-    async fn wait_to_close(mut ffplay: Child) {
-        let _ = ffplay.wait().await;
-        info!("ffplay process closed.");
+    pub async fn kill(&mut self) -> io::Result<()> {
+        self.ffplay_child.start_kill()
     }
 }

@@ -28,14 +28,14 @@ impl State {
     }
 
     pub fn get_best_node_to_redirect(&self) -> Option<SocketAddr> {
-        self.latest_received.lock().unwrap().clone()
+        *self.latest_received.lock().unwrap()
     }
 }
 
 pub async fn run_node(mut state: State) -> anyhow::Result<()> {
     info!("Waiting for packets on {}...", state.socket.local_addr()?);
 
-    let mut buf = [0u8; 8192];
+    let mut buf = [0u8; 16384];
     loop {
         let (packet, addr): (Packet, SocketAddr) = match state.socket.receive(&mut buf).await {
             Ok(Some(result)) => result,
@@ -49,58 +49,63 @@ pub async fn run_node(mut state: State) -> anyhow::Result<()> {
             }
         };
 
-        match packet {
-            Packet::NodePacket(node_packet) => {
-                match node_packet {
-                    NodePacket::ClientPing { sequence_number } => {
-                        debug!("Received ping from {}", addr);
-                        let packet = Packet::ClientPacket(ClientPacket::VideoList {
-                            sequence_number,
-                            videos: state.available_videos.clone(),
-                        });
-                        state.socket.send_reliable(&packet, addr).await?;
-                    }
-                    NodePacket::FloodPacket { hops, millis_created_at_server, videos_available } => {
-                        info!("Received flood packet from {} ({}) with {} hops and {} videos", addr, millis_created_at_server, hops, videos_available.len());
-                        state.available_videos.clone_from(&videos_available);
-                        controlled_flood(&state, addr, hops, millis_created_at_server, videos_available).await;
-                    }
+        handle_packet(&mut state, packet, addr).await?;
+    }
+}
+
+async fn handle_packet(state: &mut State, packet: Packet, addr: SocketAddr) -> anyhow::Result<()> {
+    match packet {
+        Packet::NodePacket(node_packet) => {
+            match node_packet {
+                NodePacket::ClientPing { sequence_number } => {
+                    debug!("Received ping from {}", addr);
+                    let packet = Packet::ClientPacket(ClientPacket::VideoList {
+                        sequence_number,
+                        videos: state.available_videos.clone(),
+                    });
+                    state.socket.send_reliable(&packet, addr).await?;
                 }
-            }
-            Packet::ServerPacket(server_packet) => {
-                match server_packet {
-                    ServerPacket::RequestVideo(video_id) => {
-                        let mut interested = state.interested.entry(video_id).or_insert(vec![]);
-                        if !interested.value().contains(&addr) {
-                            interested.value_mut().push(addr);
-                        }
-                        info!("Received request to start video {} from {}", video_id, addr);
-                    }
-                    ServerPacket::StopVideo(video_id) => {
-                        if let Some(mut subscribers) = state.interested.get_mut(&video_id) {
-                            subscribers.retain(|&subscriber| subscriber != addr);
-                        }
-                        info!("Received request to stop video {} from {}", video_id, addr);
-                    }
+                NodePacket::FloodPacket { hops, millis_created_at_server, videos_available } => {
+                    info!("Received flood packet from {} ({}) with {} hops and {} videos", addr, millis_created_at_server, hops, videos_available.len());
+                    state.available_videos.clone_from(&videos_available);
+                    controlled_flood(state, addr, hops, millis_created_at_server, videos_available).await;
                 }
-                if let Some(node) = state.get_best_node_to_redirect() {
-                    state.socket.send_reliable(&Packet::ServerPacket(server_packet), node).await?;
-                } else {
-                    error!("Couldn't find suitable servers for redirecting packet");
-                }
-            }
-            Packet::VideoPacket { stream_id, stream_data } => {
-                trace!("Received video packet for stream {}", stream_id);
-                if let Some(subscribers) = state.interested.get(&stream_id) {
-                    let subscribers = subscribers.clone();
-                    state.socket.send_unreliable_broadcast(&Packet::VideoPacket { stream_id, stream_data }, &subscribers).await?;
-                }
-            }
-            _ => {
-                error!("Received unexpected packet: {:?}", packet);
             }
         }
+        Packet::ServerPacket(server_packet) => {
+            match server_packet {
+                ServerPacket::RequestVideo(video_id) => {
+                    let mut interested = state.interested.entry(video_id).or_default();
+                    if !interested.value().contains(&addr) {
+                        interested.value_mut().push(addr);
+                    }
+                    info!("Received request to start video {} from {}", video_id, addr);
+                }
+                ServerPacket::StopVideo(video_id) => {
+                    if let Some(mut subscribers) = state.interested.get_mut(&video_id) {
+                        subscribers.retain(|&subscriber| subscriber != addr);
+                    }
+                    info!("Received request to stop video {} from {}", video_id, addr);
+                }
+            }
+            if let Some(node) = state.get_best_node_to_redirect() {
+                state.socket.send_reliable(&Packet::ServerPacket(server_packet), node).await?;
+            } else {
+                error!("Couldn't find suitable servers for redirecting packet");
+            }
+        }
+        Packet::VideoPacket { stream_id, stream_data } => {
+            trace!("Received video packet for stream {}", stream_id);
+            if let Some(subscribers) = state.interested.get(&stream_id) {
+                let subscribers = subscribers.clone();
+                state.socket.send_unreliable_broadcast(&Packet::VideoPacket { stream_id, stream_data }, &subscribers).await?;
+            }
+        }
+        _ => {
+            error!("Received unexpected packet: {:?}", packet);
+        }
     }
+    Ok(())
 }
 
 /// Controlled flood consists of sending a packet to all neighbours except the one that sent it to us

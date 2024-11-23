@@ -54,7 +54,7 @@ fn list_encoders() -> Vec<String> {
         .stdout
         .lines()
         .map(|line| line.unwrap().trim().to_string())
-        .filter(|line| line.starts_with("V"))
+        .filter(|line| line.starts_with('V'))
         .map(|line| line.split(' ').nth(1).unwrap().to_string())
         .collect()
 }
