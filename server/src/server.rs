@@ -119,7 +119,7 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
     let socket = state.clients_socket;
     info!("Waiting for client packets on {}", socket.local_addr()?);
 
-    let mut buf = [0u8; 16384];
+    let mut buf = [0u8; 65536];
     loop {
         let (packet, socket_addr) = match socket.receive(&mut buf).await {
             Ok(Some(result)) => result,

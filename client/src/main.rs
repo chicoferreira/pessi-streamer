@@ -283,7 +283,7 @@ async fn start_ping_nodes_task(state: State) {
 }
 
 async fn handle_packet_task(state: State) {
-    let mut buf = [0u8; 16384];
+    let mut buf = [0u8; 65536];
     loop {
         let result = state.socket.receive(&mut buf).await;
         let (packet, addr) = match result {

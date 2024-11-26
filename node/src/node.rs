@@ -39,7 +39,7 @@ impl State {
 pub async fn run_node(mut state: State) -> anyhow::Result<()> {
     info!("Waiting for packets on {}...", state.socket.local_addr()?);
 
-    let mut buf = [0u8; 16384];
+    let mut buf = [0u8; 65536];
     loop {
         let (packet, addr): (Packet, SocketAddr) = match state.socket.receive(&mut buf).await {
             Ok(Some(result)) => result,
