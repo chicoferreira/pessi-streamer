@@ -9,7 +9,7 @@ use thiserror::Error;
 use tokio::net::UdpSocket;
 
 const MAX_RETRIES: u8 = 5;
-const TIMEOUT: Duration = Duration::from_millis(200);
+const TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Clone)]
 pub struct ReliableUdpSocket {

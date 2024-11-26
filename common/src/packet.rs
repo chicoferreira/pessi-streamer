@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::time::SystemTime;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Packet {
@@ -29,7 +30,7 @@ pub enum NodePacket {
     /// Packets originated by the server
     FloodPacket {
         hops: u8,
-        millis_created_at_server: u128,
+        created_at_server_time: SystemTime,
         videos_available: Vec<(u8, String)>,
     },
 }
@@ -48,6 +49,7 @@ pub enum ClientPacket {
     VideoList {
         sequence_number: u64,
         videos: Vec<(u8, String)>,
+        answer_creation_date: SystemTime,
     },
 }
 

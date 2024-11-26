@@ -94,7 +94,7 @@ impl State {
                             error!("Failed to send video packet: {}", e);
                         }
 
-                        debug!(
+                        trace!(
                             "Sent video packet (video={}, seq={}, size={}) to {} subscribers",
                             id,
                             video.sequence_number,
@@ -136,7 +136,10 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 
         match packet {
             Packet::ServerPacket(ServerPacket::RequestVideo(video_id)) => {
-                info!("Received request to start video {} from {}", video_id, socket_addr);
+                info!(
+                    "Received request to start video {} from {}",
+                    video_id, socket_addr
+                );
                 if let Some(mut video) = state.videos.get_mut(&video_id) {
                     if !video.interested.contains(&socket_addr) {
                         video.interested.push(socket_addr);
@@ -144,7 +147,10 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
                 }
             }
             Packet::ServerPacket(ServerPacket::StopVideo(video_id)) => {
-                info!("Received request to stop video {} from {}", video_id, socket_addr);
+                info!(
+                    "Received request to stop video {} from {}",
+                    video_id, socket_addr
+                );
                 if let Some(mut subscribers) = state.videos.get_mut(&video_id) {
                     subscribers
                         .interested
@@ -164,27 +170,16 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 pub mod flood {
     use crate::server::State;
     use common::packet::{NodePacket, Packet};
-    use log::{error, info};
-    use std::time::{Duration, SystemTimeError};
-
-    fn get_current_millis() -> Result<u128, SystemTimeError> {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-    }
+    use log::info;
+    use std::time::{Duration, SystemTime};
 
     pub async fn run_periodic_flood_packets(state: State) -> anyhow::Result<()> {
         info!("Starting periodic flood packets to neighbours");
 
         loop {
-            let Ok(now) = get_current_millis() else {
-                error!("Failed to get current time. Clock may have gone backwards.");
-                continue;
-            };
-
             let packet = Packet::NodePacket(NodePacket::FloodPacket {
                 hops: 0,
-                millis_created_at_server: now,
+                created_at_server_time: SystemTime::now(),
                 videos_available: state.get_video_list(),
             });
 

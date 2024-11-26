@@ -29,14 +29,14 @@ impl eframe::App for MyApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Servers:");
             for server_entry in self.state.servers.iter() {
-                let server = server_entry.value().clone();
+                let node = server_entry.value();
 
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label(format!("Server: {}", server.addr));
+                        ui.label(format!("Server: {}", node.addr));
 
-                        if let Some(score) = server.get_score() {
-                            ui.label(format!("Average RTT: {:.2} ms", score));
+                        if let Some(score) = node.average_rtt() {
+                            ui.label(format!("Average RTT: {:?}", score));
                         } else {
                             ui.add(Spinner::new());
                             ui.label("Connecting...");
@@ -62,7 +62,7 @@ impl eframe::App for MyApp {
 
                             if let Some(video) = self.state.playing_videos.get(stream_id) {
                                 let bytes =
-                                    bytefmt::format(video.video_player.bytes_received() as u64);
+                                    bytefmt::format(video.video_player.bytes_written() as u64);
                                 ui.label(format!("Bytes received: {bytes}"));
                             }
                         });

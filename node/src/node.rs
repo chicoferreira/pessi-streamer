@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use log::{debug, error, info, trace};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 pub struct State {
     neighbours: Vec<IpAddr>,
@@ -64,16 +65,17 @@ async fn handle_packet(state: &mut State, packet: Packet, addr: SocketAddr) -> a
                 let packet = Packet::ClientPacket(ClientPacket::VideoList {
                     sequence_number,
                     videos: state.available_videos.clone(),
+                    answer_creation_date: SystemTime::now(),
                 });
                 state.socket.send_reliable(&packet, addr).await?;
             }
             NodePacket::FloodPacket {
                 hops,
-                millis_created_at_server,
+                created_at_server_time: millis_created_at_server,
                 videos_available,
             } => {
-                info!(
-                    "Received flood packet from {} ({}) with {} hops and {} videos",
+                debug!(
+                    "Received flood packet from {} ({:?}) with {} hops and {} videos",
                     addr,
                     millis_created_at_server,
                     hops,
@@ -127,11 +129,15 @@ async fn handle_packet(state: &mut State, packet: Packet, addr: SocketAddr) -> a
 
             let expected = last_sequence_number + 1;
 
-            debug!(
+            trace!(
                 "Received video packet (stream={}, seq={}, expected={}, n={}) from {}",
-                stream_id, sequence_number, expected, stream_data.len(), addr
+                stream_id,
+                sequence_number,
+                expected,
+                stream_data.len(),
+                addr
             );
-            
+
             if expected != sequence_number {
                 error!(
                     "Received out of order packet (expected {}, got {})",
@@ -163,12 +169,12 @@ async fn controlled_flood(
     state: &State,
     peer_addr: SocketAddr,
     hops: u8,
-    millis_created_at_server: u128,
+    millis_created_at_server: SystemTime,
     videos_available: Vec<(u8, String)>,
 ) {
     let flood_packet = Packet::NodePacket(NodePacket::FloodPacket {
         hops: hops + 1,
-        millis_created_at_server,
+        created_at_server_time: millis_created_at_server,
         videos_available,
     });
 
