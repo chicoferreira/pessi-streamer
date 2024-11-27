@@ -68,10 +68,7 @@ impl State {
 
         let state = self.clone();
 
-        let child_future = async {
-            let status = child_process.wait().await;
-            status
-        };
+        let child_future = async { child_process.wait().await };
 
         tokio::pin!(child_future);
 

@@ -17,8 +17,8 @@ pub async fn new_video_process(video_path: PathBuf) -> anyhow::Result<(UdpSocket
 
     info!("Starting video task for {:?}", video_path);
 
-        let ffmpeg_socket = UdpSocket::bind("127.0.0.1:0").await?;
-        let ffmpeg_socket_addr = ffmpeg_socket.local_addr()?;
+    let ffmpeg_socket = UdpSocket::bind("127.0.0.1:0").await?;
+    let ffmpeg_socket_addr = ffmpeg_socket.local_addr()?;
 
     let codec = auto_detect_codec()
         .await
