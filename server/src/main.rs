@@ -5,11 +5,10 @@ use env_logger::Env;
 use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use tokio::net::UdpSocket;
 use walkdir::WalkDir;
 
-mod video;
 mod server;
+mod video;
 
 /// Simple program to start a server
 #[derive(Parser, Debug)]
@@ -44,18 +43,16 @@ async fn main() -> anyhow::Result<()> {
 
     let bootstraper_addr = common::get_bootstraper_address()?;
 
-    let neighbours = common::neighbours::fetch_neighbours_with_retries(server_addr, bootstraper_addr).await
-        .into_iter()
-        .map(|ip| SocketAddr::new(ip, common::PORT))
-        .collect();
+    let neighbours =
+        common::neighbours::fetch_neighbours_with_retries(server_addr, bootstraper_addr)
+            .await
+            .into_iter()
+            .map(|ip| SocketAddr::new(ip, common::PORT))
+            .collect();
 
     info!("Fetched neighbours: {:?}", neighbours);
 
-    let clients_socket = UdpSocket::bind(server_addr)
-        .await
-        .context("Failed to bind to clients socket")?;
-
-    let clients_socket = common::reliable::ReliableUdpSocket::new(clients_socket);
+    let clients_socket = common::reliable::ReliableUdpSocket::new(server_addr).await?;
 
     let state = State::new(clients_socket, neighbours);
 
@@ -63,9 +60,14 @@ async fn main() -> anyhow::Result<()> {
     let videos = get_files(video_folder.clone());
 
     for video in videos {
-        if let Err(e) = state.start_streaming_video(video, &video_folder).await {
-            error!("Failed to start video task: {}", e);
-        }
+        let state = state.clone();
+        let video_folder = video_folder.clone();
+        tokio::spawn(async move {
+            state
+                .start_streaming_video(video, video_folder)
+                .await
+                .expect("Failed to start streaming video");
+        });
     }
 
     tokio::select! {

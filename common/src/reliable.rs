@@ -2,9 +2,11 @@ use dashmap::DashMap;
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::io;
+use std::net::SocketAddr;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use socket2::SockRef;
 use thiserror::Error;
 use tokio::net::UdpSocket;
 
@@ -19,14 +21,14 @@ pub struct ReliableUdpSocket {
 }
 
 impl ReliableUdpSocket {
-    pub fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.socket.local_addr()
     }
 }
 
 struct PendingPacket {
     data: Vec<u8>,
-    destination: std::net::SocketAddr,
+    destination: SocketAddr,
     timestamp: Instant,
     retries: u8,
 }
@@ -50,15 +52,21 @@ pub enum ReliableUdpSocketError {
 pub type Result<T> = std::result::Result<T, ReliableUdpSocketError>;
 
 impl ReliableUdpSocket {
-    pub fn new(socket: UdpSocket) -> Self {
-        Self {
+    pub async fn new(addr: SocketAddr) -> io::Result<Self> {
+        let socket = UdpSocket::bind(addr).await?;
+
+        let sock_ref = SockRef::from(&socket);
+        sock_ref.set_send_buffer_size(1_048_576)?;
+        sock_ref.set_recv_buffer_size(1_048_576)?;
+
+        Ok(Self {
             socket: Arc::new(socket),
             pending_packets: Arc::new(DashMap::new()),
             sequence_number: Arc::new(AtomicU64::new(0)),
-        }
+        })
     }
 
-    pub async fn send_reliable<S>(&self, payload: &S, addr: std::net::SocketAddr) -> Result<()>
+    pub async fn send_reliable<S>(&self, payload: &S, addr: SocketAddr) -> Result<()>
     where
         S: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
@@ -85,7 +93,7 @@ impl ReliableUdpSocket {
         Ok(())
     }
 
-    pub async fn send_unreliable<S>(&self, payload: &S, addr: std::net::SocketAddr) -> Result<()>
+    pub async fn send_unreliable<S>(&self, payload: &S, addr: SocketAddr) -> Result<()>
     where
         S: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
@@ -99,7 +107,7 @@ impl ReliableUdpSocket {
     pub async fn send_unreliable_broadcast<S>(
         &self,
         payload: &S,
-        addrs: &[std::net::SocketAddr],
+        addrs: &[SocketAddr],
     ) -> Result<()>
     where
         S: Serialize + for<'de> Deserialize<'de> + Send + 'static,
@@ -114,7 +122,7 @@ impl ReliableUdpSocket {
         Ok(())
     }
 
-    async fn send_ack<S>(&self, packet_id: u64, addr: std::net::SocketAddr) -> Result<()>
+    async fn send_ack<S>(&self, packet_id: u64, addr: SocketAddr) -> Result<()>
     where
         S: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
@@ -125,7 +133,7 @@ impl ReliableUdpSocket {
         Ok(())
     }
 
-    pub async fn receive<R>(&self, buf: &mut [u8]) -> Result<Option<(R, std::net::SocketAddr)>>
+    pub async fn receive<R>(&self, buf: &mut [u8]) -> Result<Option<(R, SocketAddr)>>
     where
         R: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {

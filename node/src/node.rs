@@ -151,6 +151,13 @@ async fn handle_packet(state: &mut State, packet: Packet, addr: SocketAddr) -> a
                     sequence_number,
                     stream_data,
                 };
+
+                trace!(
+                    "Sending video packet (stream={}, seq={}) to {:?}",
+                    stream_id,
+                    sequence_number,
+                    subscribers
+                );
                 state
                     .socket
                     .send_unreliable_broadcast(&packet, &subscribers)

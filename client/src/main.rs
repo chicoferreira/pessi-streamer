@@ -14,7 +14,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::AtomicU64;
 use std::sync::{atomic, Arc, RwLock};
 use std::time::{Duration, SystemTime};
-use tokio::net::UdpSocket;
 
 /// A simple program to watch live streams
 #[derive(Parser, Debug)]
@@ -326,10 +325,10 @@ async fn handle_packet_task(state: State) {
                 }
             }
             Packet::ClientPacket(ClientPacket::VideoList {
-                                     sequence_number,
-                                     videos,
-                                     answer_creation_date,
-                                 }) => {
+                sequence_number,
+                videos,
+                answer_creation_date,
+            }) => {
                 state.handle_ping_answer(sequence_number, videos, answer_creation_date);
             }
             _ => {
@@ -351,10 +350,8 @@ async fn main() -> anyhow::Result<()> {
         panic!("Video player {:?} is not installed", args.video_player);
     }
 
-    let socket = UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 2), 0))
-        .await
-        .context("Failed to bind UDP socket")?;
-    let socket = common::reliable::ReliableUdpSocket::new(socket);
+    let addr = (Ipv4Addr::new(127, 0, 0, 2), 0).into();
+    let socket = common::reliable::ReliableUdpSocket::new(addr).await?;
 
     let state = State::new(socket.clone(), args.servers, args.video_player);
 

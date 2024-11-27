@@ -1,4 +1,4 @@
-use crate::video::VideoProcess;
+use crate::video;
 use common::packet::{Packet, ServerPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
+use tokio::select;
 
 struct Video {
     /// The id of the video stream
@@ -52,9 +52,10 @@ impl State {
     pub async fn start_streaming_video(
         &self,
         video_path: PathBuf,
-        video_folder: &PathBuf,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
-        let video_process = VideoProcess::new_video_process(video_path.clone()).await?;
+        video_folder: PathBuf,
+    ) -> anyhow::Result<()> {
+        let (stream_socket, mut child_process) =
+            video::new_video_process(video_path.clone()).await?;
         let video_name = video_path
             .with_extension("")
             .strip_prefix(video_folder)?
@@ -67,10 +68,29 @@ impl State {
 
         let state = self.clone();
 
-        Ok(tokio::spawn(async move {
-            let mut buf = [0u8; 65536];
-            loop {
-                if let Ok(n) = video_process.recv(&mut buf).await {
+        let child_future = async {
+            let status = child_process.wait().await;
+            status
+        };
+
+        tokio::pin!(child_future);
+
+        let mut buf = [0u8; 65536];
+        loop {
+            select! {
+                _ = &mut child_future => {
+                    error!("Child process ended unexpectedly");
+                    return Err(anyhow::anyhow!("Child process ended unexpectedly"));
+                }
+                packet = stream_socket.recv(&mut buf) => {
+                    let n = match packet {
+                        Ok(n) => n,
+                        Err(e) => {
+                            error!("Failed to receive packet: {}", e);
+                            continue;
+                        }
+                    };
+
                     if let Some(mut video) = state.videos.get_mut(&id) {
                         if video.interested.is_empty() {
                             continue;
@@ -104,7 +124,7 @@ impl State {
                     }
                 }
             }
-        }))
+        }
     }
 
     pub fn get_video_list(&self) -> Vec<(u8, String)> {
