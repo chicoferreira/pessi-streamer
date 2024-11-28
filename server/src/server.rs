@@ -1,5 +1,5 @@
 use crate::video;
-use common::packet::{Packet, ServerPacket};
+use common::packet::{Packet, ServerPacket, VideoPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
@@ -97,11 +97,11 @@ impl State {
 
                         let stream_data = buf[..n].to_vec();
 
-                        let packet = Packet::VideoPacket {
+                        let packet = Packet::VideoPacket(VideoPacket {
                             stream_id: id,
                             sequence_number: video.sequence_number,
                             stream_data,
-                        };
+                        });
 
                         if let Err(e) = state
                             .clients_socket
@@ -186,19 +186,23 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
 
 pub mod flood {
     use crate::server::State;
-    use common::packet::{NodePacket, Packet};
+    use common::packet::{FloodPacket, NodePacket, Packet};
     use log::info;
     use std::time::{Duration, SystemTime};
 
     pub async fn run_periodic_flood_packets(state: State) -> anyhow::Result<()> {
         info!("Starting periodic flood packets to neighbours");
+        let mut sequence_number = 0;
 
         loop {
-            let packet = Packet::NodePacket(NodePacket::FloodPacket {
+            let packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
+                sequence_number,
                 hops: 0,
                 created_at_server_time: SystemTime::now(),
                 videos_available: state.get_video_list(),
-            });
+            }));
+
+            sequence_number += 1;
 
             state
                 .clients_socket
