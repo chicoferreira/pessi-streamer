@@ -6,7 +6,7 @@ use crate::video::{VideoPlayer, VideoPlayerType};
 use anyhow::Context;
 use circular_buffer::CircularBuffer;
 use clap::Parser;
-use common::packet::{ClientPacket, NodePacket, Packet, ServerPacket};
+use common::packet::{ClientPacket, NodePacket, Packet, ServerPacket, VideoListPacket};
 use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
 use std::cmp;
@@ -198,32 +198,23 @@ impl State {
         });
     }
 
-    fn handle_ping_answer(
-        &self,
-        sequence_number: u64,
-        videos: Vec<(u8, String)>,
-        answer_creation_date: SystemTime,
-    ) {
-        self.set_video_list(videos);
+    fn handle_ping_answer(&self, video_list_packet: VideoListPacket) {
+        self.set_video_list(video_list_packet.videos);
 
+        let sequence_number = video_list_packet.sequence_number;
         if let Some((_, (addr, start_time))) = self.pending_pings.remove(&sequence_number) {
             let now = SystemTime::now();
 
-            let to = answer_creation_date
-                .duration_since(start_time)
-                .unwrap_or(Duration::from_secs(0));
+            let date = video_list_packet.answer_creation_date;
 
-            let from = now
-                .duration_since(answer_creation_date)
-                .unwrap_or(Duration::from_secs(0));
+            let to = date.duration_since(start_time).unwrap_or(Duration::ZERO);
+            let from = now.duration_since(date).unwrap_or(Duration::ZERO);
 
-            let total_rtt = now
-                .duration_since(start_time)
-                .unwrap_or(Duration::from_secs(0));
+            let total_rtt = now.duration_since(start_time).unwrap_or(Duration::ZERO);
             debug!(
-                "Received ping answer from {} in {:?} (TO: {:?}, FROM: {:?})",
-                addr, total_rtt, to, from
+                "Received ping answer from {addr} in {total_rtt:?} (TO: {to:?}, FROM: {from:?})"
             );
+
             if let Some(mut node) = self.servers.get_mut(&addr) {
                 node.connection
                     .get_or_insert(Default::default())
@@ -294,27 +285,23 @@ async fn handle_packet_task(state: State) {
             }
         };
         match packet {
-            Packet::VideoPacket {
-                stream_id,
-                sequence_number,
-                stream_data,
-            } => {
+            Packet::VideoPacket(video_packet) => {
+                let stream_id = video_packet.stream_id;
                 if let Some(mut video) = state.playing_videos.get_mut(&stream_id) {
+                    let sequence_number = video_packet.sequence_number;
                     trace!(
-                        "Received video packet for stream {} (SEQ={}, DATA_LEN={})",
-                        stream_id,
-                        sequence_number,
-                        stream_data.len()
+                        "Received video packet for stream {stream_id} (SEQ={sequence_number}, DATA_LEN={})",
+                        video_packet.stream_data.len()
                     );
-                    if sequence_number != video.last_sequence_number + 1 {
-                        warn!(
-                            "Received video packet out of order (LAST={} NEW={}) for stream {}",
-                            video.last_sequence_number, sequence_number, stream_id
-                        );
+
+                    let expected_sequence_number = video.last_sequence_number + 1;
+                    let sequence_number = video_packet.sequence_number;
+                    if sequence_number != expected_sequence_number {
+                        warn!("Received video packet out of order (GOT={sequence_number} EXPECTED={expected_sequence_number}) for stream {stream_id}");
                     }
                     video.last_sequence_number = sequence_number;
 
-                    if let Err(e) = video.video_player.write(&stream_data).await {
+                    if let Err(e) = video.video_player.write(&video_packet.stream_data).await {
                         error!("Failed to write video packet: {}", e);
                         state.stop_playing(&mut video).await;
                         drop(video);
@@ -324,16 +311,10 @@ async fn handle_packet_task(state: State) {
                     warn!("Received video packet for unwanted stream {}", stream_id);
                 }
             }
-            Packet::ClientPacket(ClientPacket::VideoList {
-                sequence_number,
-                videos,
-                answer_creation_date,
-            }) => {
-                state.handle_ping_answer(sequence_number, videos, answer_creation_date);
+            Packet::ClientPacket(ClientPacket::VideoList(video_list_packet)) => {
+                state.handle_ping_answer(video_list_packet);
             }
-            _ => {
-                error!("Received unexpected packet from {}: {:?}", addr, packet)
-            }
+            _ => error!("Received unexpected packet from {}: {:?}", addr, packet),
         }
     }
 }

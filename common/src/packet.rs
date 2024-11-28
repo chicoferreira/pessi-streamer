@@ -5,17 +5,20 @@ use std::time::SystemTime;
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Packet {
     /// A video packet that contains video data
-    VideoPacket {
-        stream_id: u8,
-        sequence_number: u64,
-        stream_data: Vec<u8>,
-    },
+    VideoPacket(VideoPacket),
     /// Packets that only the node should receive
     NodePacket(NodePacket),
     /// Packets that only the server should receive
     ServerPacket(ServerPacket),
     /// Packets that only the client should receive
     ClientPacket(ClientPacket),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VideoPacket {
+    pub stream_id: u8,
+    pub sequence_number: u64,
+    pub stream_data: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -28,11 +31,15 @@ pub enum NodePacket {
         sequence_number: u64,
     },
     /// Packets originated by the server
-    FloodPacket {
-        hops: u8,
-        created_at_server_time: SystemTime,
-        videos_available: Vec<(u8, String)>,
-    },
+    FloodPacket(FloodPacket),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FloodPacket {
+    pub sequence_number: u64,
+    pub hops: u8,
+    pub created_at_server_time: SystemTime,
+    pub videos_available: Vec<(u8, String)>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -46,11 +53,14 @@ pub enum ServerPacket {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientPacket {
     /// Answer to a `Packet::NodePacket::ClientPing`
-    VideoList {
-        sequence_number: u64,
-        videos: Vec<(u8, String)>,
-        answer_creation_date: SystemTime,
-    },
+    VideoList(VideoListPacket),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VideoListPacket {
+    pub sequence_number: u64,
+    pub videos: Vec<(u8, String)>,
+    pub answer_creation_date: SystemTime,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
