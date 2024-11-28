@@ -1,3 +1,4 @@
+use common::crypto;
 use common::packet::{BootstraperNeighboursResponse, BootstraperPacket};
 use log::{error, info};
 use serde::Deserialize;
@@ -56,7 +57,8 @@ async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) ->
 
     let n = stream.read(&mut buf).await?;
 
-    let result: Result<BootstraperPacket, bincode::Error> = bincode::deserialize(&buf[..n]);
+    let decrypted = crypto::decrypt(&buf[..n]);
+    let result: Result<BootstraperPacket, bincode::Error> = bincode::deserialize(&decrypted);
 
     match result {
         Ok(BootstraperPacket::RequestNeighbours) => {
@@ -72,7 +74,10 @@ async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) ->
             let packet = BootstraperNeighboursResponse(neighbours_list);
 
             match bincode::serialize(&packet) {
-                Ok(bytes) => stream.write_all(&bytes).await?,
+                Ok(bytes) => {
+                    let bytes = crypto::encrypt(&bytes);
+                    stream.write_all(&bytes).await?;
+                }
                 Err(err) => {
                     error!("Error serializing packet: {}", err);
                 }

@@ -1,3 +1,4 @@
+use crate::crypto;
 use crate::packet::BootstraperNeighboursResponse;
 use anyhow::Context;
 use log::{info, warn};
@@ -28,7 +29,9 @@ pub async fn fetch_neighbours(node_ip: SocketAddr, bootstraper_addr: SocketAddr)
     let serialized_packet = bincode::serialize(&packet)
         .context("Failed to serialize RequestNeighbours packet")?;
 
-    stream.write_all(&serialized_packet).await
+    let encrypted_packet = crypto::encrypt(&serialized_packet);
+
+    stream.write_all(&encrypted_packet).await
         .context("Failed to send the RequestNeighbours packet")?;
 
     let mut buf = [0u8; 1024];
@@ -40,7 +43,9 @@ pub async fn fetch_neighbours(node_ip: SocketAddr, bootstraper_addr: SocketAddr)
         anyhow::bail!("No data received from bootstrapper");
     }
 
-    let BootstraperNeighboursResponse(neighbours) = bincode::deserialize(&buf[..n])
+    let decrypted = crypto::decrypt(&buf[..n]);
+
+    let BootstraperNeighboursResponse(neighbours) = bincode::deserialize(&decrypted)
         .context("Failed to deserialize response packet")?;
 
     stream.shutdown().await
