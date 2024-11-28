@@ -10,6 +10,8 @@ use socket2::SockRef;
 use thiserror::Error;
 use tokio::net::UdpSocket;
 
+use crate::crypto;
+
 const MAX_RETRIES: u8 = 5;
 const TIMEOUT: Duration = Duration::from_millis(100);
 
@@ -77,7 +79,8 @@ impl ReliableUdpSocket {
         let packet = UdpPacket::Reliable { packet_id, payload };
 
         let data = bincode::serialize(&packet)?;
-        self.socket.send_to(&data, addr).await?;
+        let encrypted_data = crypto::encrypt(&data);
+        self.socket.send_to(&encrypted_data, addr).await?;
 
         let pending_packet = PendingPacket {
             data,
@@ -99,7 +102,8 @@ impl ReliableUdpSocket {
     {
         let packet = UdpPacket::Unreliable(payload);
         let data = bincode::serialize(&packet)?;
-        self.socket.send_to(&data, addr).await?;
+        let encrypted_data = crypto::encrypt(&data);
+        self.socket.send_to(&encrypted_data, addr).await?;
 
         Ok(())
     }
@@ -114,9 +118,10 @@ impl ReliableUdpSocket {
     {
         let packet = UdpPacket::Unreliable(payload);
         let data = bincode::serialize(&packet)?;
+        let encrypted_data = crypto::encrypt(&data);
 
         for addr in addrs {
-            self.socket.send_to(&data, addr).await?;
+            self.socket.send_to(&encrypted_data, addr).await?;
         }
 
         Ok(())
@@ -128,7 +133,8 @@ impl ReliableUdpSocket {
     {
         let packet = UdpPacket::<S>::Ack { packet_id };
         let data = bincode::serialize(&packet)?;
-        self.socket.send_to(&data, addr).await?;
+        let encrypted_data = crypto::encrypt(&data);
+        self.socket.send_to(&encrypted_data, addr).await?;
 
         Ok(())
     }
@@ -138,7 +144,8 @@ impl ReliableUdpSocket {
         R: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
         let (size, addr) = self.socket.recv_from(buf).await?;
-        let packet: UdpPacket<R> = bincode::deserialize(&buf[..size])?;
+        let decrypted = crypto::decrypt(&buf[..size]);
+        let packet: UdpPacket<R> = bincode::deserialize(&decrypted)?;
 
         match packet {
             UdpPacket::Ack { packet_id } => {
