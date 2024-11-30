@@ -41,10 +41,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting server...");
 
-    let bootstraper_addr = common::get_bootstraper_address()?;
+    let bootstrapper_addr = common::get_bootstrapper_address()?;
 
     let response =
-        common::neighbours::fetch_bootstrapper_with_retries(server_addr, bootstraper_addr).await;
+        common::neighbours::fetch_bootstrapper_with_retries(server_addr, bootstrapper_addr).await;
 
     let neighbours = response
         .neighbours

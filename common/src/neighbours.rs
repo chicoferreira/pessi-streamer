@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use crate::packet::BootstraperNeighboursResponse;
+use crate::packet::BootstrapperNeighboursResponse;
 use anyhow::Context;
 use log::{info, warn};
 use std::time::Duration;
@@ -11,8 +11,8 @@ const RETRY_DELAY: Duration = Duration::from_secs(5);
 
 pub async fn fetch_neighbours(
     node_ip: SocketAddr,
-    bootstraper_addr: SocketAddr,
-) -> anyhow::Result<BootstraperNeighboursResponse> {
+    bootstrapper_addr: SocketAddr,
+) -> anyhow::Result<BootstrapperNeighboursResponse> {
     let socket = TcpSocket::new_v4().context("Failed to create a new IPv4 socket")?;
 
     // quickly rebind a socket in windows
@@ -22,12 +22,12 @@ pub async fn fetch_neighbours(
         .bind(node_ip)
         .context("Failed to bind the socket to the provided node IP address")?;
 
-    let mut stream = timeout(Duration::from_secs(5), socket.connect(bootstraper_addr))
+    let mut stream = timeout(Duration::from_secs(5), socket.connect(bootstrapper_addr))
         .await
         .context("Connection attempt timed out")?
         .context("Failed to connect to the bootstrapper address")?;
 
-    let packet = crate::packet::BootstraperPacket::RequestNeighbours;
+    let packet = crate::packet::BootstrapperPacket::RequestNeighbours;
     let serialized_packet =
         bincode::serialize(&packet).context("Failed to serialize RequestNeighbours packet")?;
 
@@ -59,18 +59,18 @@ pub async fn fetch_neighbours(
 
 pub async fn fetch_bootstrapper_with_retries(
     node_ip: SocketAddr,
-    bootstraper_addr: SocketAddr,
-) -> BootstraperNeighboursResponse {
+    bootstrapper_addr: SocketAddr,
+) -> BootstrapperNeighboursResponse {
     let mut attempt = 0;
 
     info!(
         "Fetching neighbours from bootstrapper at: {}",
-        bootstraper_addr
+        bootstrapper_addr
     );
 
     loop {
         attempt += 1;
-        match fetch_neighbours(node_ip, bootstraper_addr).await {
+        match fetch_neighbours(node_ip, bootstrapper_addr).await {
             Ok(response) => return response,
             Err(e) => {
                 warn!("Failed to fetch neighbours (attempt {attempt}): {e}. Retrying in {RETRY_DELAY:?}...",);

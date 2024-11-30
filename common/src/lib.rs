@@ -9,15 +9,12 @@ pub mod neighbours;
 pub mod packet;
 pub mod reliable;
 
-pub fn get_bootstraper_address() -> anyhow::Result<SocketAddr> {
-    env::var("BOOTSTRAPER_IP")
-        .context("BOOTSTRAPER_IP environment variable not set")
+pub fn get_bootstrapper_address() -> anyhow::Result<SocketAddr> {
+    env::var("BOOTSTRAPPER_IP")
+        .context("BOOTSTRAPPER_IP environment variable not set")
         .and_then(|ip_str| {
             ip_str.parse().map_err(|_| {
-                anyhow::anyhow!(
-                    "Couldn't parse BOOTSTRAPER_IP as a valid address: {}",
-                    ip_str
-                )
+                anyhow::anyhow!("Couldn't parse BOOTSTRAPPER_IP as a valid address: {ip_str}")
             })
         })
 }

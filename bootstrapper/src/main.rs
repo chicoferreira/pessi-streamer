@@ -1,4 +1,4 @@
-use crate::bootstraper::{Neighbours, State};
+use crate::bootstrapper::{Neighbours, State};
 use anyhow::Context;
 use clap::{command, Parser};
 use env_logger::Env;
@@ -6,9 +6,9 @@ use log::info;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 
-mod bootstraper;
+mod bootstrapper;
 
-/// Simple program to start a bootstraper
+/// Simple program to start a bootstrapper
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -23,10 +23,10 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let bootstraper_addr =
-        common::get_bootstraper_address().context("Failed to get bootstraper address")?;
+    let bootstrapper_addr =
+        common::get_bootstrapper_address().context("Failed to get bootstrapper address")?;
 
-    let server_socket = TcpListener::bind(bootstraper_addr)
+    let server_socket = TcpListener::bind(bootstrapper_addr)
         .await
         .context("Failed to bind to server socket")?;
 
@@ -38,10 +38,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Loaded {} neighbours information.", neighbours.len());
 
-    info!("Starting bootstraper...");
+    info!("Starting bootstrapper...");
     let state = State::new(neighbours);
 
-    bootstraper::run_server(state, server_socket).await?;
+    bootstrapper::run_server(state, server_socket).await?;
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use common::packet::{BootstraperNeighboursResponse, BootstraperPacket};
+use common::packet::{BootstrapperNeighboursResponse, BootstrapperPacket};
 use log::{error, info};
 use serde::Deserialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -70,10 +70,10 @@ async fn handle_client(
 
     let n = stream.read(&mut buf).await?;
 
-    let result: Result<BootstraperPacket, bincode::Error> = bincode::deserialize(&buf[..n]);
+    let result: Result<BootstrapperPacket, bincode::Error> = bincode::deserialize(&buf[..n]);
 
     match result {
-        Ok(BootstraperPacket::RequestNeighbours) => {
+        Ok(BootstrapperPacket::RequestNeighbours) => {
             info!("Received request for neighbours from {}", addr);
 
             let neighbours = state
@@ -85,7 +85,7 @@ async fn handle_client(
             info!("Sending neighbours list to {addr}: {neighbours:?}");
 
             let id = calculate_id(addr);
-            let packet = BootstraperNeighboursResponse { neighbours, id };
+            let packet = BootstrapperNeighboursResponse { neighbours, id };
 
             match bincode::serialize(&packet) {
                 Ok(bytes) => stream.write_all(&bytes).await?,
