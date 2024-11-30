@@ -77,6 +77,9 @@ async fn main() -> anyhow::Result<()> {
         _ = server::flood::run_periodic_flood_packets(state.clone()) => {
             error!("Periodic flood packets task ended unexpectedly");
         }
+        _ = server::watch_videos_folder(state.clone(), video_folder.clone()) => {
+            error!("File watcher task ended unexpectedly");
+        }
         Err(e) = server::run_client_socket(state) => {
             error!("Client socket task ended unexpectedly: {}", e);
         }

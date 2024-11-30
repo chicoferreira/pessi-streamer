@@ -8,6 +8,11 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::select;
+use futures::{
+    channel::mpsc::{channel, Receiver},
+    SinkExt, StreamExt,
+};
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 struct Video {
     /// The id of the video stream
@@ -182,6 +187,58 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
             }
         }
     }
+}
+
+pub async fn watch_videos_folder(state: State, video_folder: PathBuf) -> notify::Result<()> {
+    let (mut watcher, mut rx) = async_watcher()?;
+
+    watcher.watch(video_folder.as_ref(), RecursiveMode::Recursive)?;
+
+    while let Some(res) = rx.next().await {
+        match res {
+            Ok(event) => handle_file_event(event, &state, &video_folder).await,
+            Err(e) => error!("watch error: {:?}", e),
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_file_event(event: Event, state: &State, video_folder: &PathBuf) {
+    match event.kind {
+        notify::EventKind::Create(_) => {
+            for video in event.paths {
+                let state = state.clone();
+                let video_folder = video_folder.clone();
+
+                info!("Detected new video: {:?}", video);
+                tokio::spawn(async move {
+                    state
+                        .start_streaming_video(video, video_folder)
+                        .await
+                        .expect("Failed to start streaming video");
+                });
+            }
+        }
+        _ => {}
+    }
+}
+
+fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
+    let (mut tx, rx) = channel(1);
+
+    // Automatically select the best implementation for your platform.
+    // You can also access each implementation directly e.g. INotifyWatcher.
+    let watcher = RecommendedWatcher::new(
+        move |res| {
+            futures::executor::block_on(async {
+                tx.send(res).await.unwrap();
+            })
+        },
+        Config::default(),
+    )?;
+
+    Ok((watcher, rx))
 }
 
 pub mod flood {
