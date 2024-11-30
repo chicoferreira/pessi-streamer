@@ -331,7 +331,7 @@ async fn main() -> anyhow::Result<()> {
         panic!("Video player {:?} is not installed", args.video_player);
     }
 
-    let addr = (Ipv4Addr::new(127, 0, 0, 2), 0).into();
+    let addr = (Ipv4Addr::UNSPECIFIED, 0).into();
     let socket = common::reliable::ReliableUdpSocket::new(addr).await?;
 
     let state = State::new(socket.clone(), args.servers, args.video_player);

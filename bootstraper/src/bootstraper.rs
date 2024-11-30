@@ -1,9 +1,13 @@
 use common::packet::{BootstraperNeighboursResponse, BootstraperPacket};
 use log::{error, info};
 use serde::Deserialize;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, sync::Arc};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[derive(Deserialize)]
 pub struct Neighbours {
@@ -51,7 +55,17 @@ pub async fn run_server(state: State, socket: TcpListener) -> anyhow::Result<()>
     }
 }
 
-async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) -> anyhow::Result<()> {
+fn calculate_id(addr: SocketAddr) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    addr.hash(&mut hasher);
+    hasher.finish()
+}
+
+async fn handle_client(
+    mut stream: TcpStream,
+    addr: SocketAddr,
+    state: State,
+) -> anyhow::Result<()> {
     let mut buf = [0u8; 1024];
 
     let n = stream.read(&mut buf).await?;
@@ -62,25 +76,23 @@ async fn handle_client(mut stream: TcpStream, addr: SocketAddr, state: State) ->
         Ok(BootstraperPacket::RequestNeighbours) => {
             info!("Received request for neighbours from {}", addr);
 
-            let neighbours_list = state.neighbours
+            let neighbours = state
+                .neighbours
                 .get(&addr.ip())
                 .cloned()
                 .unwrap_or_default();
 
-            info!("Sending neighbours list to {}: {:?}", addr, neighbours_list);
+            info!("Sending neighbours list to {addr}: {neighbours:?}");
 
-            let packet = BootstraperNeighboursResponse(neighbours_list);
+            let id = calculate_id(addr);
+            let packet = BootstraperNeighboursResponse { neighbours, id };
 
             match bincode::serialize(&packet) {
                 Ok(bytes) => stream.write_all(&bytes).await?,
-                Err(err) => {
-                    error!("Error serializing packet: {}", err);
-                }
+                Err(err) => error!("Error serializing packet: {}", err),
             };
         }
-        Err(e) => {
-            error!("Error deserializing packet: {}", e);
-        }
+        Err(e) => error!("Error deserializing packet: {}", e),
     }
 
     Ok(())

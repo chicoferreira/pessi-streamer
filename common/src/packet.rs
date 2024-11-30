@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::SystemTime;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -30,16 +30,31 @@ pub enum NodePacket {
         /// Used to match the response with the request
         sequence_number: u64,
     },
+
     /// Packets originated by the server
     FloodPacket(FloodPacket),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FloodPacket {
+    /// The sequence number of the packet
+    /// Each times a server sends a flood packet, this number is increased
+    /// Used to ignore old packets that may be received after a long time
     pub sequence_number: u64,
+    /// The number of hops this packet has done
+    /// Used to calculate the best node to redirect a video
     pub hops: u8,
+    /// The time the packet was created at the server
+    /// Used to calculate the best node to redirect a video
     pub created_at_server_time: SystemTime,
+    /// The videos available in this node
     pub videos_available: Vec<(u8, String)>,
+    /// The nodes that have been visited by this packet
+    /// Used to avoid loops
+    pub visited_nodes: Vec<u64>,
+    /// The fathers of the node that sent this packet
+    /// Used to establish connection when there is only one node connecting to the rest of the network
+    pub my_fathers: Vec<SocketAddr>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -70,4 +85,7 @@ pub enum BootstraperPacket {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct BootstraperNeighboursResponse(pub Vec<IpAddr>);
+pub struct BootstraperNeighboursResponse {
+    pub neighbours: Vec<IpAddr>,
+    pub id: u64,
+}

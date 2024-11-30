@@ -1,14 +1,16 @@
 use dashmap::DashMap;
 use log::error;
 use serde::{Deserialize, Serialize};
+use socket2::SockRef;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use socket2::SockRef;
+use sync::oneshot;
 use thiserror::Error;
 use tokio::net::UdpSocket;
+use tokio::sync;
 
 const MAX_RETRIES: u8 = 5;
 const TIMEOUT: Duration = Duration::from_millis(100);
@@ -28,6 +30,7 @@ impl ReliableUdpSocket {
 
 struct PendingPacket {
     data: Vec<u8>,
+    sender: oneshot::Sender<ReliablePacketResult>,
     destination: SocketAddr,
     timestamp: Instant,
     retries: u8,
@@ -49,6 +52,11 @@ pub enum ReliableUdpSocketError {
     BincodeError(#[from] bincode::Error),
 }
 
+pub enum ReliablePacketResult {
+    Acknowledged(Duration),
+    Timeout,
+}
+
 pub type Result<T> = std::result::Result<T, ReliableUdpSocketError>;
 
 impl ReliableUdpSocket {
@@ -66,7 +74,11 @@ impl ReliableUdpSocket {
         })
     }
 
-    pub async fn send_reliable<S>(&self, payload: &S, addr: SocketAddr) -> Result<()>
+    pub async fn send_reliable<S>(
+        &self,
+        payload: &S,
+        addr: SocketAddr,
+    ) -> Result<oneshot::Receiver<ReliablePacketResult>>
     where
         S: Serialize + for<'de> Deserialize<'de> + Send + 'static,
     {
@@ -79,8 +91,11 @@ impl ReliableUdpSocket {
         let data = bincode::serialize(&packet)?;
         self.socket.send_to(&data, addr).await?;
 
+        let (tx, rx) = oneshot::channel();
+
         let pending_packet = PendingPacket {
             data,
+            sender: tx,
             destination: addr,
             timestamp: Instant::now(),
             retries: 0,
@@ -90,7 +105,7 @@ impl ReliableUdpSocket {
 
         self.handle_retransmission(packet_id);
 
-        Ok(())
+        Ok(rx)
     }
 
     pub async fn send_unreliable<S>(&self, payload: &S, addr: SocketAddr) -> Result<()>
@@ -142,7 +157,11 @@ impl ReliableUdpSocket {
 
         match packet {
             UdpPacket::Ack { packet_id } => {
-                self.pending_packets.remove(&packet_id);
+                if let Some((_, packet)) = self.pending_packets.remove(&packet_id) {
+                    let duration = packet.timestamp.elapsed();
+                    let result = ReliablePacketResult::Acknowledged(duration);
+                    let _ = packet.sender.send(result);
+                }
                 Ok(None)
             }
             UdpPacket::Reliable { packet_id, payload } => {
@@ -167,11 +186,15 @@ impl ReliableUdpSocket {
 
                     if pending_packet.retries >= MAX_RETRIES {
                         error!(
-                            "Failed to deliver packet {} after {MAX_RETRIES} tries to {}.",
-                            packet_id, pending_packet.destination
+                            "Failed to deliver packet {packet_id} after {MAX_RETRIES} tries to {}.",
+                            pending_packet.destination
                         );
                         drop(pending_packet_entry);
-                        pending_packets.remove(&packet_id);
+                        
+                        if let Some((_, packet)) = pending_packets.remove(&packet_id) {
+                            let _ = packet.sender.send(ReliablePacketResult::Timeout);
+                        }
+                        
                         break;
                     } else if pending_packet.timestamp.elapsed() >= TIMEOUT {
                         if let Err(e) = socket

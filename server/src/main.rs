@@ -43,18 +43,20 @@ async fn main() -> anyhow::Result<()> {
 
     let bootstraper_addr = common::get_bootstraper_address()?;
 
-    let neighbours =
-        common::neighbours::fetch_neighbours_with_retries(server_addr, bootstraper_addr)
-            .await
-            .into_iter()
-            .map(|ip| SocketAddr::new(ip, common::PORT))
-            .collect();
+    let response =
+        common::neighbours::fetch_bootstrapper_with_retries(server_addr, bootstraper_addr).await;
+
+    let neighbours = response
+        .neighbours
+        .into_iter()
+        .map(|ip| SocketAddr::new(ip, common::PORT))
+        .collect();
 
     info!("Fetched neighbours: {:?}", neighbours);
 
     let clients_socket = common::reliable::ReliableUdpSocket::new(server_addr).await?;
 
-    let state = State::new(clients_socket, neighbours);
+    let state = State::new(clients_socket, response.id, neighbours);
 
     let video_folder = PathBuf::from("./videos");
     let videos = get_files(video_folder.clone());

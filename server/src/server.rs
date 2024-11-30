@@ -19,6 +19,7 @@ struct Video {
 
 #[derive(Clone)]
 pub struct State {
+    id: u64,
     /// Map of video paths to interested subscribers
     videos: Arc<DashMap<u8, Video>>,
     last_video_id: Arc<AtomicU8>,
@@ -27,8 +28,9 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(clients_socket: ReliableUdpSocket, neighbours: Vec<SocketAddr>) -> Self {
+    pub fn new(clients_socket: ReliableUdpSocket, id: u64, neighbours: Vec<SocketAddr>) -> Self {
         Self {
+            id,
             clients_socket,
             videos: Arc::new(DashMap::new()),
             last_video_id: Arc::new(AtomicU8::new(0)),
@@ -200,6 +202,8 @@ pub mod flood {
                 hops: 0,
                 created_at_server_time: SystemTime::now(),
                 videos_available: state.get_video_list(),
+                visited_nodes: vec![state.id],
+                my_fathers: vec![],
             }));
 
             sequence_number += 1;
