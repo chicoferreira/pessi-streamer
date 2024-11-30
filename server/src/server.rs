@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::select;
+use walkdir::WalkDir;
 
 struct Video {
     /// The id of the video stream
@@ -38,6 +39,28 @@ impl State {
         }
     }
 
+    pub fn get_video_name_from_path(
+        video_path: &PathBuf,
+        video_folder: &PathBuf,
+    ) -> Result<String, std::path::StripPrefixError> {
+        Ok(video_path
+            .with_extension("")
+            .strip_prefix(video_folder)?
+            .to_str()
+            .unwrap()
+            .to_string())
+    }
+
+    pub fn contains_video(&self, video_path: &PathBuf, video_folder: &PathBuf) -> bool {
+        let Ok(video_name) = Self::get_video_name_from_path(video_path, video_folder) else {
+            return false;
+        };
+
+        self.videos
+            .iter()
+            .any(|entry| entry.value().name == video_name)
+    }
+
     fn get_next_video_id(&self) -> u8 {
         self.last_video_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -52,23 +75,16 @@ impl State {
     }
 
     pub async fn start_streaming_video(
-        &self,
+        self,
         video_path: PathBuf,
         video_folder: PathBuf,
     ) -> anyhow::Result<()> {
         let (stream_socket, mut child_process) =
             video::new_video_process(video_path.clone()).await?;
-        let video_name = video_path
-            .with_extension("")
-            .strip_prefix(video_folder)?
-            .to_str()
-            .unwrap()
-            .to_string();
+        let video_name = Self::get_video_name_from_path(&video_path, &video_folder)?;
 
         let id = self.get_next_video_id();
         self.videos.insert(id, self.new_video(video_name.clone()));
-
-        let state = self.clone();
 
         let child_future = async { child_process.wait().await };
 
@@ -90,7 +106,7 @@ impl State {
                         }
                     };
 
-                    if let Some(mut video) = state.videos.get_mut(&id) {
+                    if let Some(mut video) = self.videos.get_mut(&id) {
                         if video.interested.is_empty() {
                             continue;
                         }
@@ -105,7 +121,7 @@ impl State {
                             stream_data,
                         });
 
-                        if let Err(e) = state
+                        if let Err(e) = self
                             .clients_socket
                             .send_unreliable_broadcast(&packet, &video.interested)
                             .await
@@ -183,6 +199,31 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
                 );
             }
         }
+    }
+}
+
+fn get_files(dir: &PathBuf) -> Vec<PathBuf> {
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.path().to_path_buf())
+        .collect()
+}
+
+pub async fn watch_video_folder(state: State) -> anyhow::Result<()> {
+    let video_folder = PathBuf::from("./videos");
+
+    loop {
+        for video in get_files(&video_folder) {
+            if !state.contains_video(&video, &video_folder) {
+                info!("Starting streaming for video {:?}", video);
+                let state = state.clone();
+                tokio::spawn(state.start_streaming_video(video, video_folder.clone()));
+            }
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
     }
 }
 

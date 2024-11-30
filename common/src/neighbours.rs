@@ -1,7 +1,7 @@
-use std::net::SocketAddr;
 use crate::packet::BootstrapperNeighboursResponse;
 use anyhow::Context;
 use log::{info, warn};
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpSocket;

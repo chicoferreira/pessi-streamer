@@ -13,3 +13,4 @@ ffmpeg-sidecar = "2.0.2"
 dashmap = "6.1.0"
 clap = { version = "4.5.20", features = ["derive"] }
 walkdir = "2.5.0"
+notify = "7.0.0"

@@ -190,11 +190,11 @@ impl ReliableUdpSocket {
                             pending_packet.destination
                         );
                         drop(pending_packet_entry);
-                        
+
                         if let Some((_, packet)) = pending_packets.remove(&packet_id) {
                             let _ = packet.sender.send(ReliablePacketResult::Timeout);
                         }
-                        
+
                         break;
                     } else if pending_packet.timestamp.elapsed() >= TIMEOUT {
                         if let Err(e) = socket

@@ -4,8 +4,6 @@ use clap::{command, Parser};
 use env_logger::Env;
 use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-use walkdir::WalkDir;
 
 mod server;
 mod video;
@@ -20,15 +18,6 @@ struct Args {
     /// Path to the videos directory
     #[arg(short, long, default_value = "videos")]
     videos: String,
-}
-
-fn get_files(dir: PathBuf) -> Vec<PathBuf> {
-    WalkDir::new(dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|entry| entry.file_type().is_file())
-        .map(|entry| entry.path().to_path_buf())
-        .collect()
 }
 
 #[tokio::main]
@@ -58,26 +47,15 @@ async fn main() -> anyhow::Result<()> {
 
     let state = State::new(clients_socket, response.id, neighbours);
 
-    let video_folder = PathBuf::from("./videos");
-    let videos = get_files(video_folder.clone());
-
-    for video in videos {
-        let state = state.clone();
-        let video_folder = video_folder.clone();
-        tokio::spawn(async move {
-            state
-                .start_streaming_video(video, video_folder)
-                .await
-                .expect("Failed to start streaming video");
-        });
-    }
-
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             info!("Received Ctrl-C, shutting down...");
         }
         _ = server::flood::run_periodic_flood_packets(state.clone()) => {
             error!("Periodic flood packets task ended unexpectedly");
+        }
+        _ = server::watch_video_folder(state.clone()) => {
+            error!("Watch video folder task ended unexpectedly");
         }
         Err(e) = server::run_client_socket(state) => {
             error!("Client socket task ended unexpectedly: {}", e);
