@@ -48,18 +48,13 @@ async fn main() -> anyhow::Result<()> {
     let state = State::new(clients_socket, response.id, neighbours);
 
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received Ctrl-C, shutting down...");
-        }
-        _ = server::flood::run_periodic_flood_packets(state.clone()) => {
-            error!("Periodic flood packets task ended unexpectedly");
-        }
-        _ = server::watch_video_folder(state.clone()) => {
-            error!("Watch video folder task ended unexpectedly");
-        }
-        Err(e) = server::run_client_socket(state) => {
-            error!("Client socket task ended unexpectedly: {}", e);
-        }
+        _ = tokio::signal::ctrl_c() => info!("Received Ctrl-C, shutting down..."),
+        r = tokio::spawn(server::flood::run_periodic_flood_packets(state.clone())) =>
+            error!("Periodic flood packets task ended unexpectedly: {r:?}"),
+        r = tokio::spawn(server::watch_video_folder(state.clone())) =>
+            error!("Watch video folder task ended unexpectedly: {r:?}"),
+        r = tokio::spawn(server::run_client_socket(state)) =>
+            error!("Client socket task ended unexpectedly: {r:?}"),
     }
 
     Ok(())

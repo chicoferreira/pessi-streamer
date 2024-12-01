@@ -39,8 +39,10 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => info!("Received Ctrl-C, shutting down..."),
-        err = node::run_packet_task(state.clone()) => error!("Packet task ended unexpectedly: {err:?}"),
-        err = node::run_check_neighbours_task(state) => error!("Check neighbours status ended unexpectedly: {err:?}"),
+        r = tokio::spawn(node::run_packet_task(state.clone())) =>
+            error!("Packet task ended unexpectedly: {r:?}"),
+        r = tokio::spawn(node::run_check_neighbours_task(state)) =>
+            error!("Check neighbours status ended unexpectedly: {r:?}"),
     }
 
     Ok(())

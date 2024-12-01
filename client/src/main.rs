@@ -11,6 +11,7 @@ use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
 use std::cmp;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::process::exit;
 use std::sync::atomic::AtomicU64;
 use std::sync::{atomic, Arc, RwLock};
 use std::time::{Duration, SystemTime};
@@ -26,10 +27,6 @@ struct Args {
     /// Possible servers to connect to
     #[arg(short, long)]
     servers: Vec<IpAddr>,
-
-    /// If the UI should be displayed
-    #[arg(short, long, default_value_t = false)]
-    no_ui: bool,
 
     /// The video player to use
     #[arg(short, long, default_value = "mpv")]
@@ -336,14 +333,25 @@ async fn main() -> anyhow::Result<()> {
 
     let state = State::new(socket.clone(), args.servers, args.video_player);
 
-    tokio::spawn(start_ping_nodes_task(state.clone()));
-    tokio::spawn(handle_packet_task(state.clone()));
-
-    if !args.no_ui {
-        if let Err(e) = ui::run_ui(state) {
-            error!("Failed to run UI: {}", e);
+    tokio::spawn({
+        let state = state.clone();
+        async move {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => info!("Received Ctrl-C"),
+                r = tokio::spawn(start_ping_nodes_task(state.clone())) =>
+                    error!("Ping task ended unexpectedly: {r:?}"),
+                r = tokio::spawn(handle_packet_task(state)) =>
+                    error!("Packet task ended unexpectedly: {r:?}"),
+            }
+            exit(0);
         }
+    });
+
+    if let Err(e) = ui::run_ui(state) {
+        error!("Failed to run UI: {}", e);
     }
+
+    info!("Shutting down...");
 
     Ok(())
 }

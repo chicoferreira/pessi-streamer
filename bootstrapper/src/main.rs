@@ -2,7 +2,7 @@ use crate::bootstrapper::{Neighbours, State};
 use anyhow::Context;
 use clap::{command, Parser};
 use env_logger::Env;
-use log::info;
+use log::{error, info};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 
@@ -41,7 +41,12 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting bootstrapper...");
     let state = State::new(neighbours);
 
-    bootstrapper::run_server(state, server_socket).await?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => info!("Received Ctrl-C, shutting down..."),
+        r = bootstrapper::run_server(state, server_socket) => {
+            error!("Server ended unexpectedly: {r:?}");
+        }
+    }
 
     Ok(())
 }
