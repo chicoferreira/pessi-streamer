@@ -79,12 +79,6 @@ pub struct VideoListPacket {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum BootstrapperPacket {
-    /// Request to get neighbours
-    RequestNeighbours,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct BootstrapperNeighboursResponse {
     pub neighbours: Vec<IpAddr>,
     pub id: u64,

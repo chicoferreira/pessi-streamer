@@ -168,7 +168,7 @@ impl State {
                     error!("Failed to redirect video {}: {}", video_id, e);
                 }
             } else {
-                warn!("Couldn't find a suitable node to redirect video {}", video_id);
+                warn!("Couldn't find a suitable node to redirect video {video_id}");
             }
         }
     }

@@ -1,11 +1,11 @@
-use common::packet::{BootstrapperNeighboursResponse, BootstrapperPacket};
+use common::packet::BootstrapperNeighboursResponse;
 use log::{error, info};
 use serde::Deserialize;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
 };
 
@@ -66,34 +66,21 @@ async fn handle_client(
     addr: SocketAddr,
     state: State,
 ) -> anyhow::Result<()> {
-    let mut buf = [0u8; 1024];
+    let neighbours = state
+        .neighbours
+        .get(&addr.ip())
+        .cloned()
+        .unwrap_or_default();
 
-    let n = stream.read(&mut buf).await?;
+    info!("Sending neighbours list to {addr}: {neighbours:?}");
 
-    let result: Result<BootstrapperPacket, bincode::Error> = bincode::deserialize(&buf[..n]);
+    let id = calculate_id(addr);
+    let packet = BootstrapperNeighboursResponse { neighbours, id };
 
-    match result {
-        Ok(BootstrapperPacket::RequestNeighbours) => {
-            info!("Received request for neighbours from {}", addr);
-
-            let neighbours = state
-                .neighbours
-                .get(&addr.ip())
-                .cloned()
-                .unwrap_or_default();
-
-            info!("Sending neighbours list to {addr}: {neighbours:?}");
-
-            let id = calculate_id(addr);
-            let packet = BootstrapperNeighboursResponse { neighbours, id };
-
-            match bincode::serialize(&packet) {
-                Ok(bytes) => stream.write_all(&bytes).await?,
-                Err(err) => error!("Error serializing packet: {}", err),
-            };
-        }
-        Err(e) => error!("Error deserializing packet: {}", e),
-    }
+    match bincode::serialize(&packet) {
+        Ok(bytes) => stream.write_all(&bytes).await?,
+        Err(err) => error!("Error serializing packet: {}", err),
+    };
 
     Ok(())
 }

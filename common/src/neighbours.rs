@@ -27,15 +27,6 @@ pub async fn fetch_neighbours(
         .context("Connection attempt timed out")?
         .context("Failed to connect to the bootstrapper address")?;
 
-    let packet = crate::packet::BootstrapperPacket::RequestNeighbours;
-    let serialized_packet =
-        bincode::serialize(&packet).context("Failed to serialize RequestNeighbours packet")?;
-
-    stream
-        .write_all(&serialized_packet)
-        .await
-        .context("Failed to send the RequestNeighbours packet")?;
-
     let mut buf = [0u8; 1024];
     let n = timeout(Duration::from_secs(5), stream.read(&mut buf))
         .await
@@ -63,10 +54,7 @@ pub async fn fetch_bootstrapper_with_retries(
 ) -> BootstrapperNeighboursResponse {
     let mut attempt = 0;
 
-    info!(
-        "Fetching neighbours from bootstrapper at: {}",
-        bootstrapper_addr
-    );
+    info!("Fetching neighbours from bootstrapper at: {bootstrapper_addr}");
 
     loop {
         attempt += 1;
