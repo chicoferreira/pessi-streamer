@@ -2,24 +2,30 @@ use circular_buffer::CircularBuffer;
 use common::packet::{FloodPacket, NodePacket, Packet, ServerPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
-use log::{error, info};
+use log::{error, info, warn};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub enum RouteStatus {
     #[default]
     Active,
     Unresponsive,
 }
 
+#[derive(Debug)]
+struct ParentData {
+    parents: Vec<SocketAddr>,
+    date_last_flood_packet_received: SystemTime,
+}
+
 #[derive(Debug, Default)]
 enum NodeType {
-    /// If the node is father, it must contain its parents.
-    /// A father is a node that can reach the server without passing through the same node again
-    Father(Vec<SocketAddr>),
+    /// If the node is parent, it must contain its parents.
+    /// A parent is a node that can reach the server without passing through the same node again
+    Parent(ParentData),
     #[default]
     Child,
 }
@@ -46,7 +52,13 @@ impl RouteInfo {
             .elapsed()
             .unwrap_or(Duration::ZERO);
         self.last_delays_to_server.push_back(duration);
-        self.node_type = NodeType::Father(flood_packet.my_fathers.clone());
+
+        self.status = RouteStatus::Active;
+
+        self.node_type = NodeType::Parent(ParentData {
+            parents: flood_packet.my_parents.clone(),
+            date_last_flood_packet_received: SystemTime::now(),
+        });
     }
 }
 
@@ -68,7 +80,7 @@ pub struct State {
     pub video_routes: Arc<DashMap<u8, SocketAddr>>,
     /// Last sequence number received to calculate video packet losses
     pub last_video_sequence_number: Arc<DashMap<u8, u64>>,
-    /// Last sequence number received in a flood packet
+    /// Last sequence number received in a flood packet, used to ignore old packets
     pub last_flood_packet_sequence_number: Arc<AtomicU64>,
 }
 
@@ -96,6 +108,7 @@ impl State {
         self.available_routes
             .iter()
             .filter(|entry| entry.videos.contains(&video_id))
+            .filter(|entry| entry.status == RouteStatus::Active)
             .min_by_key(|entry| {
                 let route_info = entry.value();
                 let hops = route_info.hops;
@@ -125,58 +138,113 @@ impl State {
             .collect()
     }
 
-    pub fn get_fathers(&self) -> Vec<SocketAddr> {
+    pub fn get_parents(&self) -> Vec<SocketAddr> {
         self.available_routes
             .iter()
-            .filter(|route_info| matches!(route_info.node_type, NodeType::Father(_)))
+            .filter(|route_info| matches!(route_info.node_type, NodeType::Parent(_)))
             .map(|route_info| *route_info.key())
             .collect()
     }
 
-    pub fn update_video_names(&self, video_names: Vec<(u8, String)>) {
-        for (id, video_name) in video_names {
-            self.video_names.insert(id, video_name);
+    pub async fn mark_node_as_unresponsive(&self, addr: SocketAddr) {
+        {
+            let mut route_info = self.available_routes.get_mut(&addr).unwrap();
+            route_info.status = RouteStatus::Unresponsive;
+            // drop route_info to release the lock
+        }
+
+        // Remove all videos that were being received from the
+        // unresponsive node and redirect them to another node
+        let videos_from_addr = self
+            .video_routes
+            .iter()
+            .filter(|entry| *entry.value() == addr)
+            .map(|entry| *entry.key());
+
+        for video_id in videos_from_addr {
+            let addr = self.get_best_node_to_redirect(video_id);
+            if let Some(addr) = addr {
+                if let Err(e) = self.request_video_to_node(video_id, addr).await {
+                    error!("Failed to redirect video {}: {}", video_id, e);
+                }
+            } else {
+                warn!("Couldn't find a suitable node to redirect video {}", video_id);
+            }
+        }
+    }
+
+    pub async fn request_video_to_node(
+        &self,
+        video_id: u8,
+        node: SocketAddr,
+    ) -> anyhow::Result<()> {
+        let packet = Packet::ServerPacket(ServerPacket::RequestVideo(video_id));
+        self.socket.send_reliable(&packet, node).await?;
+        self.video_routes.insert(video_id, node);
+        Ok(())
+    }
+
+    async fn handle_packet(&self, packet: Packet, addr: SocketAddr) -> anyhow::Result<()> {
+        match packet {
+            Packet::NodePacket(node_packet) => match node_packet {
+                NodePacket::ClientPing { sequence_number } => {
+                    self.handle_client_ping(sequence_number, addr).await?
+                }
+                NodePacket::FloodPacket(packet) => self.handle_flood_packet(addr, packet).await,
+            },
+            Packet::ServerPacket(server_packet) => match server_packet {
+                ServerPacket::RequestVideo(id) => self.handle_request_video(id, addr).await?,
+                ServerPacket::StopVideo(id) => self.handle_stop_video(id, addr).await?,
+            },
+            Packet::VideoPacket(packet) => self.handle_video_packet(addr, packet).await?,
+            _ => anyhow::bail!("Received unexpected packet"),
+        }
+        Ok(())
+    }
+}
+
+pub async fn run_check_neighbours_task(state: State) {
+    loop {
+        tokio::time::sleep(common::FLOOD_PACKET_INTERVAL).await;
+        for entry in state.available_routes.iter() {
+            let addr = *entry.key();
+            let route_info = entry.value();
+
+            let parent_data = match &route_info.node_type {
+                NodeType::Parent(parent_data) => parent_data,
+                NodeType::Child => continue,
+            };
+
+            let last_flood_packet_received = parent_data.date_last_flood_packet_received;
+            let time_since_last_flood_packet =
+                last_flood_packet_received.elapsed().unwrap_or_default();
+
+            if time_since_last_flood_packet > common::FLOOD_PACKET_INTERVAL * 2 {
+                warn!("Parent node {addr} hasn't sent a flood packet in {time_since_last_flood_packet:?}. Marking it as unresponsive.");
+                drop(entry);
+                // Node is unresponsive mark it as such
+                state.mark_node_as_unresponsive(addr).await;
+            }
         }
     }
 }
 
-pub async fn run_node(state: State) -> anyhow::Result<()> {
+pub async fn run_packet_task(state: State) -> anyhow::Result<()> {
     info!("Waiting for packets on {}...", state.socket.local_addr()?);
 
     let mut buf = [0u8; 65536];
     loop {
         let (packet, addr): (Packet, SocketAddr) = match state.socket.receive(&mut buf).await {
             Ok(Some(result)) => result,
-            Ok(None) => {
-                // Acknowledgement packet received
-                continue;
-            }
+            Ok(None) => continue, // Acknowledgement packet received
             Err(e) => {
                 error!("Failed to receive packet: {}", e);
                 continue;
             }
         };
 
-        if let Err(e) = handle_packet(&state, packet, addr).await {
+        if let Err(e) = state.handle_packet(packet, addr).await {
             error!("Failed to handle packet: {}", e);
         }
     }
-}
-
-async fn handle_packet(state: &State, packet: Packet, addr: SocketAddr) -> anyhow::Result<()> {
-    match packet {
-        Packet::NodePacket(node_packet) => match node_packet {
-            NodePacket::ClientPing { sequence_number } => {
-                state.handle_client_ping(sequence_number, addr).await?
-            }
-            NodePacket::FloodPacket(packet) => state.handle_flood_packet(addr, packet).await,
-        },
-        Packet::ServerPacket(server_packet) => match server_packet {
-            ServerPacket::RequestVideo(id) => state.handle_request_video(id, addr).await?,
-            ServerPacket::StopVideo(id) => state.handle_stop_video(id, addr).await?,
-        },
-        Packet::VideoPacket(packet) => state.handle_video_packet(addr, packet).await?,
-        _ => anyhow::bail!("Received unexpected packet"),
-    }
-    Ok(())
 }

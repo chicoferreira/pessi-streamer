@@ -52,9 +52,9 @@ pub struct FloodPacket {
     /// The nodes that have been visited by this packet
     /// Used to avoid loops
     pub visited_nodes: Vec<u64>,
-    /// The fathers of the node that sent this packet
+    /// The parents of the node that sent this packet
     /// Used to establish connection when there is only one node connecting to the rest of the network
-    pub my_fathers: Vec<SocketAddr>,
+    pub my_parents: Vec<SocketAddr>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

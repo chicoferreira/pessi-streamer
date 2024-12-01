@@ -1,6 +1,6 @@
 use crate::node::State;
 use clap::{command, Parser};
-use log::info;
+use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
 
 mod handle;
@@ -37,7 +37,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = State::new(response.id, response.neighbours, reliable_udp_socket);
 
-    node::run_node(state).await?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => info!("Received Ctrl-C, shutting down..."),
+        err = node::run_packet_task(state.clone()) => error!("Packet task ended unexpectedly: {err:?}"),
+        err = node::run_check_neighbours_task(state) => error!("Check neighbours status ended unexpectedly: {err:?}"),
+    }
 
     Ok(())
 }

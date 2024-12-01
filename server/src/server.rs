@@ -4,7 +4,7 @@ use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::select;
@@ -40,7 +40,7 @@ impl State {
     }
 
     pub fn get_video_name_from_path(
-        video_path: &PathBuf,
+        video_path: &Path,
         video_folder: &PathBuf,
     ) -> Result<String, std::path::StripPrefixError> {
         Ok(video_path
@@ -51,7 +51,7 @@ impl State {
             .to_string())
     }
 
-    pub fn contains_video(&self, video_path: &PathBuf, video_folder: &PathBuf) -> bool {
+    pub fn contains_video(&self, video_path: &Path, video_folder: &PathBuf) -> bool {
         let Ok(video_name) = Self::get_video_name_from_path(video_path, video_folder) else {
             return false;
         };
@@ -231,7 +231,7 @@ pub mod flood {
     use crate::server::State;
     use common::packet::{FloodPacket, NodePacket, Packet};
     use log::info;
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
 
     pub async fn run_periodic_flood_packets(state: State) -> anyhow::Result<()> {
         info!("Starting periodic flood packets to neighbours");
@@ -244,7 +244,7 @@ pub mod flood {
                 created_at_server_time: SystemTime::now(),
                 videos_available: state.get_video_list(),
                 visited_nodes: vec![state.id],
-                my_fathers: vec![],
+                my_parents: vec![],
             }));
 
             sequence_number += 1;
@@ -253,7 +253,8 @@ pub mod flood {
                 .clients_socket
                 .send_unreliable_broadcast(&packet, &state.neighbours)
                 .await?;
-            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            tokio::time::sleep(common::FLOOD_PACKET_INTERVAL).await;
         }
     }
 }

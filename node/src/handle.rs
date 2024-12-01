@@ -1,4 +1,5 @@
 use crate::node::{RouteStatus, State};
+use anyhow::bail;
 use common::packet::{
     ClientPacket, FloodPacket, NodePacket, Packet, ServerPacket, VideoListPacket, VideoPacket,
 };
@@ -39,14 +40,10 @@ impl State {
 
         let best_node = self.get_best_node_to_redirect(video_id);
         if let Some(node) = best_node {
-            info!("Selected best node to redirect: {:?}", best_node);
-            let packet = Packet::ServerPacket(ServerPacket::RequestVideo(video_id));
-            self.socket.send_reliable(&packet, node).await?;
-            self.video_routes.insert(video_id, node);
-            Ok(())
+            info!("Selected best node to redirect: {:?}", node);
+            self.request_video_to_node(video_id, node).await
         } else {
-            // TODO: Add to queue and wait for a better node
-            anyhow::bail!("Couldn't find suitable servers for redirecting packet")
+            bail!("Couldn't find suitable servers for video {video_id}");
         }
     }
 
@@ -73,7 +70,10 @@ impl State {
     pub async fn handle_flood_packet(&self, from_addr: SocketAddr, flood_packet: FloodPacket) {
         debug!("Received flood packet {flood_packet:?} from {from_addr}");
 
-        self.update_video_names(flood_packet.videos_available.clone());
+        // update video names
+        for (id, video_name) in flood_packet.videos_available.clone() {
+            self.video_names.insert(id, video_name);
+        }
 
         {
             let mut node_route_info = self.available_routes.entry(from_addr).or_default();
@@ -94,17 +94,17 @@ impl State {
         self.last_flood_packet_sequence_number
             .store(sequence_number, Ordering::Relaxed);
 
-        let mut visited_nodes = flood_packet.visited_nodes.clone();
-        if visited_nodes.contains(&self.id) {
+        if flood_packet.visited_nodes.contains(&self.id) {
             // loop detected, ignore
             return;
         }
 
+        let mut visited_nodes = flood_packet.visited_nodes;
         visited_nodes.push(self.id);
 
         let flood_packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
             hops: flood_packet.hops + 1,
-            my_fathers: self.get_fathers(),
+            my_parents: self.get_parents(),
             visited_nodes,
             ..flood_packet
         }));
@@ -150,7 +150,7 @@ impl State {
         }
     }
 
-    pub(crate) async fn handle_video_packet(
+    pub async fn handle_video_packet(
         &self,
         addr: SocketAddr,
         packet: VideoPacket,
