@@ -3,9 +3,9 @@ use common::packet::{Packet, ServerPacket, VideoPacket};
 use common::reliable::ReliableUdpSocket;
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use tokio::select;
 use walkdir::WalkDir;
@@ -23,7 +23,6 @@ pub struct State {
     id: u64,
     /// Map of video paths to interested subscribers
     videos: Arc<DashMap<u8, Video>>,
-    last_video_id: Arc<AtomicU8>,
     clients_socket: ReliableUdpSocket,
     neighbours: Arc<Vec<SocketAddr>>,
 }
@@ -34,7 +33,6 @@ impl State {
             id,
             clients_socket,
             videos: Arc::new(DashMap::new()),
-            last_video_id: Arc::new(AtomicU8::new(0)),
             neighbours: Arc::new(neighbours),
         }
     }
@@ -61,17 +59,18 @@ impl State {
             .any(|entry| entry.value().name == video_name)
     }
 
-    fn get_next_video_id(&self) -> u8 {
-        self.last_video_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    }
-
     fn new_video(&self, name: String) -> Video {
         Video {
             name,
             interested: Vec::new(),
             sequence_number: 0,
         }
+    }
+
+    fn get_video_id(video_name: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        video_name.hash(&mut hasher);
+        hasher.finish()
     }
 
     pub async fn start_streaming_video(
@@ -83,7 +82,7 @@ impl State {
             video::new_video_process(video_path.clone()).await?;
         let video_name = Self::get_video_name_from_path(&video_path, &video_folder)?;
 
-        let id = self.get_next_video_id();
+        let id = Self::get_video_id(&video_name) as u8;
         self.videos.insert(id, self.new_video(video_name.clone()));
 
         let child_future = async { child_process.wait().await };

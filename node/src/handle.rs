@@ -148,7 +148,7 @@ impl State {
 
         match result {
             Err(ReliableUdpSocketError::IoError(_)) | Ok(Ok(ReliablePacketResult::Timeout)) => {
-                warn!("Node {target} is unresponsive.");
+                warn!("Node {target} didn't ack our flood packet. Marking it as unresponsive.");
                 if let Some(mut route) = self.available_routes.get_mut(&target) {
                     route.status = RouteStatus::Unresponsive;
                 }

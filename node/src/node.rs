@@ -153,6 +153,12 @@ impl State {
         self.video_names
             .iter()
             .map(|entry| (*entry.key(), entry.value().clone()))
+            // filter that we have a node that can transmit this video at the moment
+            .filter(|(id, _)| {
+                self.available_routes
+                    .iter()
+                    .any(|entry| entry.value().videos.contains(id))
+            })
             .collect()
     }
 
@@ -178,7 +184,7 @@ impl State {
             if let Ok(result) = receiver.await {
                 match result {
                     ReliablePacketResult::Acknowledged(_) => {
-                        info!("Connected to parent node {node_parent_addr}");
+                        info!("Parent {node_parent_addr} acknowledged us as new neighbour. Adding it to our neighbours list.");
                         state.register_new_neighbour(node_parent_addr.ip());
                     }
                     ReliablePacketResult::Timeout => {
@@ -220,23 +226,27 @@ impl State {
             .retain(|id| !to_remove.contains(id));
     }
 
-    pub async fn handle_unresponsive_node(&self, addr: SocketAddr) {
-        let mut route_info = self.available_routes.get_mut(&addr).unwrap();
+    pub async fn handle_unresponsive_node(&self, addr: SocketAddr, route_info: &mut RouteInfo) {
         route_info.status = RouteStatus::Unresponsive;
         let node_parents = match &route_info.node_type {
             NodeType::Parent(parent_data) => parent_data.parents.clone(),
             NodeType::Child => panic!("a node that can be marked as unresponsive is a parent"),
         };
-        // drop route_info to release the lock
-        drop(route_info);
 
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
-        let videos_from_addr = self
+        let videos_from_addr: Vec<u8> = self
             .video_routes
             .iter()
             .filter(|entry| *entry.value() == addr)
-            .map(|entry| *entry.key());
+            .map(|entry| *entry.key())
+            .collect();
+
+        if videos_from_addr.is_empty() {
+            info!("Node {addr} is unresponsive but wasn't sending any videos.");
+        } else {
+            info!("Node {addr} is unresponsive. Redirecting videos {videos_from_addr:?}...");
+        }
 
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
@@ -245,6 +255,7 @@ impl State {
         for video_id in videos_from_addr {
             let new_node_addr = self.get_best_node_to_redirect(video_id);
             if let Some(new_node_addr) = new_node_addr {
+                info!("Redirecting video {video_id} to {new_node_addr}");
                 if let Err(e) = self.request_video_to_node(video_id, new_node_addr).await {
                     error!("Failed to redirect video {}: {}", video_id, e);
                 }
@@ -256,7 +267,8 @@ impl State {
 
         // some videos couldn't be redirected, try to connect to the parents of the unresponsive node
         if !remaining_videos.is_empty() {
-            info!("Connecting to parents of unresponsive node {addr} to allocate {remaining_videos:?} videos");
+            info!("Some videos couldn't be redirected to currently connected nodes.");
+            info!("Connecting to parents of unresponsive node {addr} to allocate {remaining_videos:?} videos...");
             for addr in node_parents {
                 if let Err(e) = self.connect_to_node_parent(addr).await {
                     error!("Failed to connect to parent node {}: {}", addr, e);
@@ -305,9 +317,14 @@ impl State {
 pub async fn run_check_neighbours_task(state: State) {
     loop {
         tokio::time::sleep(common::FLOOD_PACKET_INTERVAL).await;
-        for entry in state.available_routes.iter() {
+        for mut entry in state.available_routes.iter_mut() {
             let addr = *entry.key();
             let route_info = entry.value();
+
+            if route_info.status == RouteStatus::Unresponsive {
+                // already unresponsive, no need to handle
+                continue;
+            }
 
             let parent_data = match &route_info.node_type {
                 NodeType::Parent(parent_data) => parent_data,
@@ -320,9 +337,8 @@ pub async fn run_check_neighbours_task(state: State) {
 
             if time_since_last_flood_packet > common::FLOOD_PACKET_INTERVAL * 3 {
                 warn!("Parent node {addr} hasn't sent a flood packet in {time_since_last_flood_packet:?}. Marking it as unresponsive.");
-                drop(entry);
                 // Node is unresponsive mark it as such
-                state.handle_unresponsive_node(addr).await;
+                state.handle_unresponsive_node(addr, &mut entry).await;
             }
         }
     }
