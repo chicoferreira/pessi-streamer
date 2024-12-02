@@ -1,11 +1,11 @@
 use circular_buffer::CircularBuffer;
 use common::packet::{FloodPacket, NodePacket, Packet, ServerPacket};
-use common::reliable::ReliableUdpSocket;
+use common::reliable::{ReliablePacketResult, ReliableUdpSocket};
 use dashmap::DashMap;
 use log::{error, info, warn};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -67,7 +67,7 @@ pub struct State {
     /// The id of this node
     pub id: u64,
     /// The known neighbours of this node
-    pub neighbours: Arc<Vec<IpAddr>>,
+    pub neighbours: Arc<RwLock<Vec<IpAddr>>>,
     /// The udp socket to communicate with other nodes
     pub socket: ReliableUdpSocket,
     /// The known names of the videos
@@ -82,13 +82,15 @@ pub struct State {
     pub last_video_sequence_number: Arc<DashMap<u8, u64>>,
     /// Last sequence number received in a flood packet, used to ignore old packets
     pub last_flood_packet_sequence_number: Arc<AtomicU64>,
+    /// Used to store video requests that couldn't be redirected because there were no available nodes
+    pub pending_video_requests: Arc<RwLock<Vec<u8>>>,
 }
 
 impl State {
     pub fn new(id: u64, neighbours: Vec<IpAddr>, udp_socket: ReliableUdpSocket) -> Self {
         Self {
             id,
-            neighbours: Arc::new(neighbours),
+            neighbours: Arc::new(RwLock::new(neighbours)),
             socket: udp_socket,
             video_names: Default::default(),
             interested: Default::default(),
@@ -96,6 +98,7 @@ impl State {
             video_routes: Default::default(),
             last_video_sequence_number: Default::default(),
             last_flood_packet_sequence_number: Default::default(),
+            pending_video_requests: Default::default(),
         }
     }
 
@@ -146,12 +149,71 @@ impl State {
             .collect()
     }
 
-    pub async fn mark_node_as_unresponsive(&self, addr: SocketAddr) {
-        {
-            let mut route_info = self.available_routes.get_mut(&addr).unwrap();
-            route_info.status = RouteStatus::Unresponsive;
-            // drop route_info to release the lock
+    pub fn register_new_neighbour(&self, addr: IpAddr) {
+        self.neighbours.write().unwrap().push(addr);
+    }
+
+    pub async fn connect_to_node_parent(&self, node_parent_addr: SocketAddr) -> anyhow::Result<()> {
+        let packet = Packet::NodePacket(NodePacket::NewNeighbour);
+        let receiver = self.socket.send_reliable(&packet, node_parent_addr).await?;
+
+        let state = self.clone();
+
+        tokio::spawn(async move {
+            if let Ok(result) = receiver.await {
+                match result {
+                    ReliablePacketResult::Acknowledged(_) => {
+                        info!("Connected to parent node {node_parent_addr}");
+                        state.register_new_neighbour(node_parent_addr.ip());
+                    }
+                    ReliablePacketResult::Timeout => {
+                        error!("Failed to connect to parent node {node_parent_addr}: timeout");
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Check if there are any pending videos that can be redirected to the newly received video list
+    pub async fn check_pending_videos(
+        &self,
+        from_addr: SocketAddr,
+        received_video_list: &[(u8, String)],
+    ) {
+        let to_remove: Vec<_> = self
+            .pending_video_requests
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|video_id| received_video_list.iter().any(|(id, _)| id == *video_id))
+            .cloned()
+            .collect();
+
+        for video_id in &to_remove {
+            if let Err(e) = self.request_video_to_node(*video_id, from_addr).await {
+                error!("Failed to request video {video_id} to {from_addr}: {e}");
+            } else {
+                info!("Requested queued video {video_id} to {from_addr}");
+            }
         }
+
+        self.pending_video_requests
+            .write()
+            .unwrap()
+            .retain(|id| !to_remove.contains(id));
+    }
+
+    pub async fn handle_unresponsive_node(&self, addr: SocketAddr) {
+        let mut route_info = self.available_routes.get_mut(&addr).unwrap();
+        route_info.status = RouteStatus::Unresponsive;
+        let node_parents = match &route_info.node_type {
+            NodeType::Parent(parent_data) => parent_data.parents.clone(),
+            NodeType::Child => panic!("a node that can be marked as unresponsive is a parent"),
+        };
+        // drop route_info to release the lock
+        drop(route_info);
 
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
@@ -161,16 +223,37 @@ impl State {
             .filter(|entry| *entry.value() == addr)
             .map(|entry| *entry.key());
 
+        // Remove all videos that were being received from the
+        // unresponsive node and redirect them to another node
+        let mut remaining_videos = vec![];
+
         for video_id in videos_from_addr {
-            let addr = self.get_best_node_to_redirect(video_id);
-            if let Some(addr) = addr {
-                if let Err(e) = self.request_video_to_node(video_id, addr).await {
+            let new_node_addr = self.get_best_node_to_redirect(video_id);
+            if let Some(new_node_addr) = new_node_addr {
+                if let Err(e) = self.request_video_to_node(video_id, new_node_addr).await {
                     error!("Failed to redirect video {}: {}", video_id, e);
                 }
             } else {
                 warn!("Couldn't find a suitable node to redirect video {video_id}");
+                remaining_videos.push(video_id);
             }
         }
+
+        // some videos couldn't be redirected, try to connect to the parents of the unresponsive node
+        if !remaining_videos.is_empty() {
+            info!("Connecting to parents of unresponsive node {addr} to allocate {remaining_videos:?} videos");
+            for addr in node_parents {
+                if let Err(e) = self.connect_to_node_parent(addr).await {
+                    error!("Failed to connect to parent node {}: {}", addr, e);
+                }
+            }
+        }
+
+        // queue videos when the parent answers with a flood packet
+        self.pending_video_requests
+            .write()
+            .unwrap()
+            .extend(remaining_videos);
     }
 
     pub async fn request_video_to_node(
@@ -191,6 +274,7 @@ impl State {
                     self.handle_client_ping(sequence_number, addr).await?
                 }
                 NodePacket::FloodPacket(packet) => self.handle_flood_packet(addr, packet).await,
+                NodePacket::NewNeighbour => self.register_new_neighbour(addr.ip()),
             },
             Packet::ServerPacket(server_packet) => match server_packet {
                 ServerPacket::RequestVideo(id) => self.handle_request_video(id, addr).await?,
@@ -219,11 +303,11 @@ pub async fn run_check_neighbours_task(state: State) {
             let time_since_last_flood_packet =
                 last_flood_packet_received.elapsed().unwrap_or_default();
 
-            if time_since_last_flood_packet > common::FLOOD_PACKET_INTERVAL * 2 {
+            if time_since_last_flood_packet > common::FLOOD_PACKET_INTERVAL * 3 {
                 warn!("Parent node {addr} hasn't sent a flood packet in {time_since_last_flood_packet:?}. Marking it as unresponsive.");
                 drop(entry);
                 // Node is unresponsive mark it as such
-                state.mark_node_as_unresponsive(addr).await;
+                state.handle_unresponsive_node(addr).await;
             }
         }
     }

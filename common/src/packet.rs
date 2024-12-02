@@ -31,6 +31,10 @@ pub enum NodePacket {
         sequence_number: u64,
     },
 
+    /// Received when a node wants to connect to the node receiving this packet
+    /// Used when a catastrophic node failure happens, and we can only connect to the node parent
+    NewNeighbour,
+
     /// Packets originated by the server
     FloodPacket(FloodPacket),
 }

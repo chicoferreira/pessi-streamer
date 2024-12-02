@@ -1,5 +1,4 @@
 use crate::node::{RouteStatus, State};
-use anyhow::bail;
 use common::packet::{
     ClientPacket, FloodPacket, NodePacket, Packet, ServerPacket, VideoListPacket, VideoPacket,
 };
@@ -41,10 +40,13 @@ impl State {
         let best_node = self.get_best_node_to_redirect(video_id);
         if let Some(node) = best_node {
             info!("Selected best node to redirect: {:?}", node);
-            self.request_video_to_node(video_id, node).await
+            self.request_video_to_node(video_id, node).await?
         } else {
-            bail!("Couldn't find suitable servers for video {video_id}");
+            warn!("Couldn't find suitable servers for video {video_id}. Adding to queue.");
+            self.pending_video_requests.write().unwrap().push(video_id);
         }
+
+        Ok(())
     }
 
     pub async fn handle_stop_video(&self, video_id: u8, addr: SocketAddr) -> anyhow::Result<()> {
@@ -85,6 +87,10 @@ impl State {
             .last_flood_packet_sequence_number
             .load(Ordering::Relaxed);
 
+        // if contains videos in pending videos, ask for them and remove them from queue
+        self.check_pending_videos(from_addr, &flood_packet.videos_available)
+            .await;
+
         let sequence_number = flood_packet.sequence_number;
         if sequence_number < last_flood_packet_sequence_number {
             // old packet in the network, ignore
@@ -115,6 +121,8 @@ impl State {
     async fn broadcast_flood_packet(&self, from_addr: SocketAddr, flood_packet: Packet) {
         let broadcast_to: Vec<SocketAddr> = self
             .neighbours
+            .read()
+            .unwrap()
             .iter()
             .map(|addr| SocketAddr::new(*addr, common::PORT))
             .filter(|addr| *addr != from_addr)

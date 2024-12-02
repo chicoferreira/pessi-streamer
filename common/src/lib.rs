@@ -6,7 +6,7 @@ use std::time::Duration;
 /// Port used by the server and the nodes to communicate with each other
 pub const PORT: u16 = 8010;
 
-pub const FLOOD_PACKET_INTERVAL: Duration = Duration::from_secs(3);
+pub const FLOOD_PACKET_INTERVAL: Duration = Duration::from_secs(1);
 
 pub mod neighbours;
 pub mod packet;
