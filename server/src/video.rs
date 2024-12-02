@@ -90,5 +90,6 @@ pub fn launch_video_process(
         .arg("-f")
         .arg("mpegts")
         .arg(send_to_path)
+        .kill_on_drop(true)
         .spawn()
 }

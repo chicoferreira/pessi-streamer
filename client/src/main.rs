@@ -1,4 +1,3 @@
-mod monitor;
 mod ui;
 mod video;
 

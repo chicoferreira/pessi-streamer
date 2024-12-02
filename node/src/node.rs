@@ -40,6 +40,11 @@ pub struct RouteInfo {
 }
 
 impl RouteInfo {
+    fn average_delay_to_server(&self) -> Duration {
+        self.last_delays_to_server.iter().sum::<Duration>()
+            / self.last_delays_to_server.len() as u32
+    }
+
     pub fn update_from_flood_packet(&mut self, flood_packet: &FloodPacket) {
         self.hops = flood_packet.hops;
         self.videos = flood_packet
@@ -104,29 +109,39 @@ impl State {
 
     pub fn get_best_node_to_redirect(&self, video_id: u8) -> Option<SocketAddr> {
         // Select the best node based on the following criteria (in order):
-        // 1. Fewest hops
-        // 2. If hops are equal, choose the node with the lowest delay TODO: change this to a threshold percentage
-        // 3. If delay is also equal, choose the node with fewer requested videos
-        // 4. If requested videos are also equal, choose the node with fewer available videos
+        // 1. Choose nodes whose average delay is within 30% of the minimum average delay
+        // 2. Among these nodes, choose the one with the fewest hops
+        // 3. If hops are equal, choose the node with fewer requested videos
+        // 4. If requested videos are equal, choose the node with fewer available videos
+        const DELAY_THRESHOLD_PERCENTAGE: u32 = 30;
+
+        let min_average_delay = self
+            .available_routes
+            .iter()
+            .filter(|entry| entry.value().status == RouteStatus::Active)
+            .filter(|entry| entry.value().videos.contains(&video_id))
+            .map(|entry| entry.value().average_delay_to_server())
+            .min()?;
+
+        let max_delay_threshold =
+            min_average_delay + (min_average_delay / 100 * DELAY_THRESHOLD_PERCENTAGE);
+
         self.available_routes
             .iter()
-            .filter(|entry| entry.videos.contains(&video_id))
             .filter(|entry| entry.status == RouteStatus::Active)
+            .filter(|entry| entry.videos.contains(&video_id))
+            .filter(|entry| entry.average_delay_to_server() <= max_delay_threshold)
             .min_by_key(|entry| {
                 let route_info = entry.value();
                 let hops = route_info.hops;
-                let last_delays_to_server = &route_info.last_delays_to_server;
-                let average_delay = last_delays_to_server.iter().sum::<Duration>()
-                    / last_delays_to_server.len() as u32;
                 let videos_requested = self.get_number_of_videos_requested_via_node(*entry.key());
                 let videos_available = route_info.videos.len();
 
-                (hops, average_delay, videos_requested, videos_available)
+                (hops, videos_requested, videos_available)
             })
             .map(|entry| *entry.key())
     }
 
-    /// Helper method to get the number of videos requested via a given node
     fn get_number_of_videos_requested_via_node(&self, node: SocketAddr) -> usize {
         self.video_routes
             .iter()
@@ -249,7 +264,7 @@ impl State {
             }
         }
 
-        // queue videos when the parent answers with a flood packet
+        // queue videos to when the parent answers with a flood packet
         self.pending_video_requests
             .write()
             .unwrap()
