@@ -43,6 +43,8 @@ async fn main() -> anyhow::Result<()> {
             error!("Packet task ended unexpectedly: {r:?}"),
         r = tokio::spawn(node::run_client_health_check_task(state.clone())) =>
             error!("Client health check task ended unexpectedly: {r:?}"),
+        r = tokio::spawn(node::run_video_health_check_task(state.clone())) =>
+            error!("Video health check task ended unexpectedly: {r:?}"),
         r = tokio::spawn(node::run_check_neighbours_task(state)) =>
             error!("Check neighbours status ended unexpectedly: {r:?}"),
     }

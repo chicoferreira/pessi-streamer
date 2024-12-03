@@ -8,6 +8,7 @@ pub const PORT: u16 = 8010;
 
 pub const FLOOD_PACKET_INTERVAL: Duration = Duration::from_secs(1);
 pub const CLIENT_PING_INTERVAL: Duration = Duration::from_secs(1);
+pub const VIDEO_PACKET_MAX_DELAY: Duration = Duration::from_millis(500);
 
 pub mod neighbours;
 pub mod packet;

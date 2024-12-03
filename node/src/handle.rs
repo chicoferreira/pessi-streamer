@@ -5,6 +5,7 @@ use common::packet::{
 use common::reliable;
 use common::reliable::{ReliablePacketResult, ReliableUdpSocketError};
 use log::{debug, error, info, trace, warn};
+use std::cmp;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
@@ -161,6 +162,21 @@ impl State {
                 warn!("Node {target} didn't ack our flood packet. Marking it as unresponsive.");
                 if let Some(mut route) = self.available_routes.get_mut(&target) {
                     route.status = RouteStatus::Unresponsive;
+
+                    let videos_to_stop_sending: Vec<u8> = self
+                        .interested
+                        .iter()
+                        .filter(|entry| entry.contains(&target))
+                        .map(|entry| *entry.key())
+                        .collect();
+
+                    if !videos_to_stop_sending.is_empty() {
+                        for video_id in videos_to_stop_sending {
+                            if let Err(e) = self.handle_stop_video(video_id, target).await {
+                                error!("Failed to stop video {video_id} to {target}: {e}");
+                            }
+                        }
+                    }
                 }
             }
             Ok(_) => {}
@@ -183,9 +199,19 @@ impl State {
         let stream_data_len = packet.stream_data.len();
         trace!("Received video packet (stream={stream_id}, seq={sequence_number}, n={stream_data_len}) from {addr}");
 
+        self.last_video_packet_time
+            .insert(stream_id, SystemTime::now());
+
         let expected = last_sequence_number + 1;
-        if expected != sequence_number {
-            error!("Received out of order packet (expected {expected}, got {sequence_number})");
+        match expected.cmp(&sequence_number) {
+            cmp::Ordering::Less => { // ignore older packets
+                error!("Received old video packet (expected {expected}, got {sequence_number})");
+                return Ok(());
+            }
+            cmp::Ordering::Greater => { // just notify
+                error!("Received out of order packet (expected {expected}, got {sequence_number})");
+            }
+            cmp::Ordering::Equal => {} // perfect
         }
 
         if let Some(subscribers) = self.interested.get(&stream_id) {

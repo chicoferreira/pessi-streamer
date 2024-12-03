@@ -34,7 +34,7 @@ enum NodeType {
 pub struct RouteInfo {
     hops: u8,
     last_delays_to_server: CircularBuffer<10, Duration>,
-    videos: Vec<u8>,
+    available_videos: Vec<u8>,
     pub status: RouteStatus,
     node_type: NodeType,
 }
@@ -47,7 +47,7 @@ impl RouteInfo {
 
     pub fn update_from_flood_packet(&mut self, flood_packet: &FloodPacket) {
         self.hops = flood_packet.hops;
-        self.videos = flood_packet
+        self.available_videos = flood_packet
             .videos_available
             .iter()
             .map(|(id, _)| *id)
@@ -87,6 +87,8 @@ pub struct State {
     pub video_routes: Arc<DashMap<u8, SocketAddr>>,
     /// Last sequence number received to calculate video packet losses
     pub last_video_sequence_number: Arc<DashMap<u8, u64>>,
+    /// Last time a video packet was received
+    pub last_video_packet_time: Arc<DashMap<u8, SystemTime>>,
     /// Last sequence number received in a flood packet, used to ignore old packets
     pub last_flood_packet_sequence_number: Arc<AtomicU64>,
     /// Used to store video requests that couldn't be redirected because there were no available nodes
@@ -105,6 +107,7 @@ impl State {
             available_routes: Default::default(),
             video_routes: Default::default(),
             last_video_sequence_number: Default::default(),
+            last_video_packet_time: Default::default(),
             last_flood_packet_sequence_number: Default::default(),
             pending_video_requests: Default::default(),
         }
@@ -122,7 +125,7 @@ impl State {
             .available_routes
             .iter()
             .filter(|entry| entry.status == RouteStatus::Active)
-            .filter(|entry| entry.videos.contains(&video_id))
+            .filter(|entry| entry.available_videos.contains(&video_id))
             .map(|entry| entry.average_delay_to_server())
             .min()?;
 
@@ -132,12 +135,12 @@ impl State {
         self.available_routes
             .iter()
             .filter(|entry| entry.status == RouteStatus::Active)
-            .filter(|entry| entry.videos.contains(&video_id))
+            .filter(|entry| entry.available_videos.contains(&video_id))
             .filter(|entry| entry.average_delay_to_server() <= max_delay_threshold)
             .min_by_key(|entry| {
                 let hops = entry.hops;
                 let videos_requested = self.get_number_of_videos_requested_via_node(*entry.key());
-                let videos_available = entry.videos.len();
+                let videos_available = entry.available_videos.len();
 
                 (hops, videos_requested, videos_available)
             })
@@ -159,7 +162,7 @@ impl State {
             .filter(|(id, _)| {
                 self.available_routes
                     .iter()
-                    .any(|entry| entry.value().videos.contains(id))
+                    .any(|entry| entry.value().available_videos.contains(id))
             })
             .collect()
     }
@@ -382,6 +385,27 @@ pub async fn run_client_health_check_task(state: State) {
                             error!("Failed to stop video {video_id}: {e}");
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+pub async fn run_video_health_check_task(state: State) -> anyhow::Result<()> {
+    loop {
+        tokio::time::sleep(common::VIDEO_PACKET_MAX_DELAY).await;
+
+        for entry in state.last_video_packet_time.iter() {
+            let duration = SystemTime::now()
+                .duration_since(*entry.value())
+                .unwrap_or_default();
+            if duration > common::VIDEO_PACKET_MAX_DELAY {
+                let video_id = *entry.key();
+                if let Some(entry) = state.video_routes.get(entry.key()) {
+                    let addr = *entry.value();
+                    drop(entry);
+                    warn!("Haven't received a video packet for video {video_id} in {duration:?}. Requesting video again to {addr}.");
+                    state.request_video_to_node(video_id, addr).await?;
                 }
             }
         }
