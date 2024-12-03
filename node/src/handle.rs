@@ -90,6 +90,11 @@ impl State {
         let sequence_number = flood_packet.sequence_number;
         trace!("Received flood packet {sequence_number} from {from_addr}");
 
+        if flood_packet.visited_nodes.contains(&self.id) {
+            // loop detected, ignore
+            return;
+        }
+
         // update video names
         for (id, video_name) in flood_packet.videos_available.clone() {
             self.video_names.insert(id, video_name);
@@ -108,13 +113,14 @@ impl State {
             // drop route info to release the lock
         }
 
-        let last_flood_packet_sequence_number = self
-            .last_flood_packet_sequence_number
-            .load(Ordering::Relaxed);
 
         // if contains videos in pending videos, ask for them and remove them from queue
         self.check_pending_videos(from_addr, &flood_packet.videos_available)
             .await;
+
+        let last_flood_packet_sequence_number = self
+            .last_flood_packet_sequence_number
+            .load(Ordering::Relaxed);
 
         if sequence_number < last_flood_packet_sequence_number {
             // old packet in the network, ignore
@@ -123,11 +129,6 @@ impl State {
 
         self.last_flood_packet_sequence_number
             .store(sequence_number, Ordering::Relaxed);
-
-        if flood_packet.visited_nodes.contains(&self.id) {
-            // loop detected, ignore
-            return;
-        }
 
         let mut visited_nodes = flood_packet.visited_nodes;
         visited_nodes.push(self.id);
