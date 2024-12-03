@@ -1,4 +1,4 @@
-use crate::node::{RouteStatus, State};
+use crate::node::{NodeType, RouteStatus, State};
 use common::packet::{
     ClientPacket, FloodPacket, NodePacket, Packet, ServerPacket, VideoListPacket, VideoPacket,
 };
@@ -18,7 +18,7 @@ impl State {
         requested_videos: Vec<u8>,
         addr: SocketAddr,
     ) -> anyhow::Result<()> {
-        debug!("Received client ping from {}", addr);
+        trace!("Received client ping from {}", addr);
         let packet = Packet::ClientPacket(ClientPacket::VideoList(VideoListPacket {
             sequence_number,
             videos: self.get_videos(),
@@ -28,7 +28,10 @@ impl State {
         self.last_pings.insert(addr, SystemTime::now());
 
         for video_id in requested_videos {
-            self.handle_request_video(video_id, addr).await?;
+            if !self.video_routes.contains_key(&video_id) {
+                info!("{addr} requested video {video_id}.");
+                self.handle_request_video(video_id, addr).await?;
+            }
         }
 
         self.socket.send_reliable(&packet, addr).await?;
@@ -41,10 +44,13 @@ impl State {
             interested.value_mut().push(addr);
         }
 
-        if self.video_routes.contains_key(&video_id) {
+        if let Some(route) = self.video_routes.get(&video_id) {
+            info!("{addr} requested video {video_id}, already receiving it from {}", route.value());
             // We are already receiving this video
             return Ok(());
         }
+
+        info!("{addr} requested video {video_id}, selecting best node to redirect...");
 
         let best_node = self.get_best_node_to_redirect(video_id);
         if let Some(node) = best_node {
@@ -82,7 +88,7 @@ impl State {
 
     pub async fn handle_flood_packet(&self, from_addr: SocketAddr, flood_packet: FloodPacket) {
         let sequence_number = flood_packet.sequence_number;
-        debug!("Received flood packet {sequence_number} from {from_addr}");
+        trace!("Received flood packet {sequence_number} from {from_addr}");
 
         // update video names
         for (id, video_name) in flood_packet.videos_available.clone() {
@@ -91,6 +97,13 @@ impl State {
 
         {
             let mut node_route_info = self.available_routes.entry(from_addr).or_default();
+            if node_route_info.status == RouteStatus::Unresponsive {
+                info!("Received flood packet from node {from_addr} and is now responsive.");
+            }
+
+            if node_route_info.node_type == NodeType::Child {
+                info!("Received flood packet from node {from_addr} and is now a parent.");
+            }
             node_route_info.update_from_flood_packet(&flood_packet);
             // drop route info to release the lock
         }
@@ -120,7 +133,6 @@ impl State {
         visited_nodes.push(self.id);
 
         let flood_packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
-            hops: flood_packet.hops + 1,
             my_parents: self.get_parents(),
             visited_nodes,
             ..flood_packet
@@ -139,7 +151,7 @@ impl State {
             .filter(|addr| *addr != from_addr)
             .collect();
 
-        debug!("Broadcasting flood packet ({flood_packet:?}) to {broadcast_to:?}");
+        trace!("Broadcasting flood packet ({flood_packet:?}) to {broadcast_to:?}");
 
         for addr in broadcast_to {
             let result = self.socket.send_reliable(&flood_packet, addr).await;
@@ -159,23 +171,13 @@ impl State {
 
         match result {
             Err(ReliableUdpSocketError::IoError(_)) | Ok(Ok(ReliablePacketResult::Timeout)) => {
-                warn!("Node {target} didn't ack our flood packet. Marking it as unresponsive.");
                 if let Some(mut route) = self.available_routes.get_mut(&target) {
-                    route.status = RouteStatus::Unresponsive;
-
-                    let videos_to_stop_sending: Vec<u8> = self
-                        .interested
-                        .iter()
-                        .filter(|entry| entry.contains(&target))
-                        .map(|entry| *entry.key())
-                        .collect();
-
-                    if !videos_to_stop_sending.is_empty() {
-                        for video_id in videos_to_stop_sending {
-                            if let Err(e) = self.handle_stop_video(video_id, target).await {
-                                error!("Failed to stop video {video_id} to {target}: {e}");
-                            }
-                        }
+                    warn!("Node {target} didn't ack our flood packet.");
+                    if route.status == RouteStatus::Active {
+                        warn!("Marking node {target} as unresponsive.");
+                        route.status = RouteStatus::Unresponsive;
+                        drop(route);
+                        self.handle_unresponsive_node(target).await;
                     }
                 }
             }
@@ -204,11 +206,13 @@ impl State {
 
         let expected = last_sequence_number + 1;
         match expected.cmp(&sequence_number) {
-            cmp::Ordering::Less => { // ignore older packets
+            cmp::Ordering::Less => {
+                // ignore older packets
                 error!("Received old video packet (expected {expected}, got {sequence_number})");
                 return Ok(());
             }
-            cmp::Ordering::Greater => { // just notify
+            cmp::Ordering::Greater => {
+                // just notify
                 error!("Received out of order packet (expected {expected}, got {sequence_number})");
             }
             cmp::Ordering::Equal => {} // perfect

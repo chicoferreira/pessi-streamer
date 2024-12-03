@@ -15,14 +15,14 @@ pub enum RouteStatus {
     Unresponsive,
 }
 
-#[derive(Debug)]
-struct ParentData {
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParentData {
     parents: Vec<SocketAddr>,
     date_last_flood_packet_received: SystemTime,
 }
 
-#[derive(Debug, Default)]
-enum NodeType {
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum NodeType {
     /// If the node is parent, it must contain its parents.
     /// A parent is a node that can reach the server without passing through the same node again
     Parent(ParentData),
@@ -32,11 +32,11 @@ enum NodeType {
 
 #[derive(Debug, Default)]
 pub struct RouteInfo {
-    hops: u8,
+    hops: usize,
     last_delays_to_server: CircularBuffer<10, Duration>,
     available_videos: Vec<u8>,
     pub status: RouteStatus,
-    node_type: NodeType,
+    pub node_type: NodeType,
 }
 
 impl RouteInfo {
@@ -46,7 +46,7 @@ impl RouteInfo {
     }
 
     pub fn update_from_flood_packet(&mut self, flood_packet: &FloodPacket) {
-        self.hops = flood_packet.hops;
+        self.hops = flood_packet.hops();
         self.available_videos = flood_packet
             .videos_available
             .iter()
@@ -231,27 +231,41 @@ impl State {
             .retain(|id| !to_remove.contains(id));
     }
 
-    pub async fn handle_unresponsive_node(&self, addr: SocketAddr, parents: &[SocketAddr]) {
+    pub async fn handle_unresponsive_node(&self, addr: SocketAddr) {
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
-        let videos_from_addr: Vec<u8> = self
+        let videos_receiving: Vec<u8> = self
             .video_routes
             .iter()
             .filter(|entry| *entry.value() == addr)
             .map(|entry| *entry.key())
             .collect();
 
-        if videos_from_addr.is_empty() {
-            info!("Node {addr} is unresponsive but wasn't sending any videos.");
-        } else {
-            info!("Node {addr} is unresponsive. Redirecting videos {videos_from_addr:?}...");
-        }
+        let videos_sending: Vec<u8> = self
+            .interested
+            .iter()
+            .filter(|entry| entry.contains(&addr))
+            .map(|entry| *entry.key())
+            .collect();
 
+        match (videos_receiving.is_empty(), videos_sending.is_empty()) {
+            (true, true) => info!("Node {addr} is unresponsive. No videos were being received or sent."),
+            (false, true) => info!("Node {addr} is unresponsive. Redirecting videos {videos_receiving:?}..."),
+            (true, false) => info!("Node {addr} is unresponsive. Stopping videos {videos_sending:?}..."),
+            (false, false) => info!("Node {addr} is unresponsive. Redirecting videos {videos_receiving:?} and stopping videos {videos_sending:?}..."),
+        }
+        
+        for video_id in &videos_sending {
+            if let Err(e) = self.handle_stop_video(*video_id, addr).await {
+                error!("Failed to stop video {video_id} to {addr}: {e}");
+            }
+        }
+        
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
         let mut remaining_videos = vec![];
 
-        for video_id in videos_from_addr {
+        for video_id in videos_receiving {
             let new_node_addr = self.get_best_node_to_redirect(video_id);
             if let Some(new_node_addr) = new_node_addr {
                 info!("Redirecting video {video_id} to {new_node_addr}");
@@ -264,16 +278,25 @@ impl State {
             }
         }
 
+        let node_parents = match self
+            .available_routes
+            .get(&addr)
+            .map(|entry| entry.value().node_type.clone())
+        {
+            Some(NodeType::Parent(parent_data)) => parent_data.parents,
+            _ => vec![],
+        };
+
         // some videos couldn't be redirected, try to connect to the parents of the unresponsive node
         if !remaining_videos.is_empty() {
             info!("Some videos couldn't be redirected to currently connected nodes.");
-            if parents.is_empty() {
+            if node_parents.is_empty() {
                 info!("No parents to connect to. Remaining videos will be queued until a node that can stream them is available.");
             } else {
-                info!("Connecting to parents ({parents:?}) of unresponsive node {addr} to allocate {remaining_videos:?} videos...");
+                info!("Connecting to parents ({node_parents:?}) of unresponsive node {addr} to allocate {remaining_videos:?} videos...");
             }
-            for addr in parents {
-                if let Err(e) = self.connect_to_node_parent(*addr).await {
+            for addr in node_parents {
+                if let Err(e) = self.connect_to_node_parent(addr).await {
                     error!("Failed to connect to parent node {}: {}", addr, e);
                 }
             }
@@ -347,15 +370,15 @@ pub async fn run_check_neighbours_task(state: State) {
             if time_since_last_flood_packet > common::FLOOD_PACKET_INTERVAL * 3 {
                 warn!("Parent node {addr} hasn't sent a flood packet in {time_since_last_flood_packet:?}. Marking it as unresponsive.");
                 // Node is unresponsive mark it as such
-                unresponsive.push((addr, parent_data.parents.clone()));
+                unresponsive.push(addr);
             }
         }
 
         // we need to do this in a separate loop to avoid having a mutable borrow of the route info
         // while having the immutable borrow from the iterator
-        for (addr, parent_data) in unresponsive {
+        for addr in unresponsive {
             state.available_routes.get_mut(&addr).unwrap().status = RouteStatus::Unresponsive;
-            state.handle_unresponsive_node(addr, &parent_data).await;
+            state.handle_unresponsive_node(addr).await;
         }
     }
 }

@@ -3,6 +3,7 @@ use anyhow::Context;
 use clap::{command, Parser};
 use env_logger::Env;
 use log::{error, info};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 
@@ -15,6 +16,8 @@ struct Args {
     /// Neighbours configuration file
     #[arg(short, long, default_value = "topologies/neighbours.toml")]
     config: PathBuf,
+    #[arg(short, long, default_value = "0.0.0.0")]
+    bind_ip: IpAddr,
 }
 
 #[tokio::main]
@@ -23,8 +26,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let bootstrapper_addr =
-        common::get_bootstrapper_address().context("Failed to get bootstrapper address")?;
+    let bootstrapper_addr = (args.bind_ip, common::PORT);
 
     let server_socket = TcpListener::bind(bootstrapper_addr)
         .await

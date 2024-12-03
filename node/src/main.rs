@@ -11,7 +11,7 @@ mod node;
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Node IP address
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "0.0.0.0")]
     ip: IpAddr,
 }
 

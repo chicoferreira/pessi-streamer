@@ -1,12 +1,12 @@
 use crate::video;
-use common::packet::{Packet, ServerPacket, VideoPacket};
+use common::packet::{NodePacket, Packet, ServerPacket, VideoPacket};
 use common::reliable::{ReliableUdpSocket, ReliableUdpSocketError};
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::select;
 use walkdir::WalkDir;
 
@@ -24,7 +24,7 @@ pub struct State {
     /// Map of video paths to interested subscribers
     videos: Arc<DashMap<u8, Video>>,
     clients_socket: ReliableUdpSocket,
-    neighbours: Arc<Vec<SocketAddr>>,
+    neighbours: Arc<RwLock<Vec<SocketAddr>>>,
 }
 
 impl State {
@@ -33,7 +33,7 @@ impl State {
             id,
             clients_socket,
             videos: Arc::new(DashMap::new()),
-            neighbours: Arc::new(neighbours),
+            neighbours: Arc::new(RwLock::new(neighbours)),
         }
     }
 
@@ -197,6 +197,12 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
                         .retain(|&subscriber| subscriber != socket_addr);
                 }
             }
+            // ignore flood packets in case of loop
+            Packet::NodePacket(NodePacket::FloodPacket(_)) => {}
+            Packet::NodePacket(NodePacket::NewNeighbour) => {
+                info!("Received new neighbour from {}", socket_addr);
+                state.neighbours.write().unwrap().push(socket_addr);
+            }
             _ => {
                 error!(
                     "Received unexpected packet from {}: {:?}",
@@ -245,7 +251,6 @@ pub mod flood {
         loop {
             let packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
                 sequence_number,
-                hops: 0,
                 created_at_server_time: SystemTime::now(),
                 videos_available: state.get_video_list(),
                 visited_nodes: vec![state.id],
@@ -254,9 +259,10 @@ pub mod flood {
 
             sequence_number += 1;
 
+            let neighbours = state.neighbours.read().unwrap().clone();
             state
                 .clients_socket
-                .send_unreliable_broadcast(&packet, &state.neighbours)
+                .send_unreliable_broadcast(&packet, &neighbours)
                 .await?;
 
             tokio::time::sleep(common::FLOOD_PACKET_INTERVAL).await;

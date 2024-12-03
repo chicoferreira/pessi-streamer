@@ -49,9 +49,6 @@ pub struct FloodPacket {
     /// Each times a server sends a flood packet, this number is increased
     /// Used to ignore old packets that may be received after a long time
     pub sequence_number: u64,
-    /// The number of hops this packet has done
-    /// Used to calculate the best node to redirect a video
-    pub hops: u8,
     /// The time the packet was created at the server
     /// Used to calculate the best node to redirect a video
     pub created_at_server_time: SystemTime,
@@ -63,6 +60,12 @@ pub struct FloodPacket {
     /// The parents of the node that sent this packet
     /// Used to establish connection when there is only one node connecting to the rest of the network
     pub my_parents: Vec<SocketAddr>,
+}
+
+impl FloodPacket {
+    pub fn hops(&self) -> usize {
+        self.visited_nodes.len()
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
