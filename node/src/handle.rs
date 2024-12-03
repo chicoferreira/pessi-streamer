@@ -4,7 +4,7 @@ use common::packet::{
 };
 use common::reliable;
 use common::reliable::{ReliablePacketResult, ReliableUdpSocketError};
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use std::cmp;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
@@ -45,7 +45,10 @@ impl State {
         }
 
         if let Some(route) = self.video_routes.get(&video_id) {
-            info!("{addr} requested video {video_id}, already receiving it from {}", route.value());
+            info!(
+                "{addr} requested video {video_id}, already receiving it from {}",
+                route.value()
+            );
             // We are already receiving this video
             return Ok(());
         }
@@ -112,7 +115,6 @@ impl State {
             node_route_info.update_from_flood_packet(&flood_packet);
             // drop route info to release the lock
         }
-
 
         // if contains videos in pending videos, ask for them and remove them from queue
         self.check_pending_videos(from_addr, &flood_packet.videos_available)
