@@ -79,6 +79,8 @@ pub struct State {
     pub video_names: Arc<DashMap<u8, String>>,
     /// Map of video_id to list of clients interested in that video
     pub interested: Arc<DashMap<u8, Vec<SocketAddr>>>,
+    /// Map of last received pings from the clients
+    pub last_pings: Arc<DashMap<SocketAddr, SystemTime>>,
     /// All the possible routes to reach the server
     pub available_routes: Arc<DashMap<SocketAddr, RouteInfo>>,
     /// The videos that are being received
@@ -98,6 +100,7 @@ impl State {
             neighbours: Arc::new(RwLock::new(neighbours)),
             socket: udp_socket,
             video_names: Default::default(),
+            last_pings: Default::default(),
             interested: Default::default(),
             available_routes: Default::default(),
             video_routes: Default::default(),
@@ -350,6 +353,37 @@ pub async fn run_check_neighbours_task(state: State) {
         for (addr, parent_data) in unresponsive {
             state.available_routes.get_mut(&addr).unwrap().status = RouteStatus::Unresponsive;
             state.handle_unresponsive_node(addr, &parent_data).await;
+        }
+    }
+}
+
+pub async fn run_client_health_check_task(state: State) {
+    loop {
+        tokio::time::sleep(common::CLIENT_PING_INTERVAL).await;
+
+        for entry in state.last_pings.iter() {
+            let addr = entry.key();
+            let duration = SystemTime::now()
+                .duration_since(*entry.value())
+                .unwrap_or_default();
+
+            if duration > common::CLIENT_PING_INTERVAL * 3 {
+                let videos_playing = state
+                    .interested
+                    .iter()
+                    .filter(|entry| entry.contains(addr))
+                    .map(|entry| *entry.key())
+                    .collect::<Vec<_>>();
+
+                if !videos_playing.is_empty() {
+                    warn!("Client {addr} hasn't sent a ping in {duration:?}. Removing it from the interested list and stopping videos {videos_playing:?}");
+                    for video_id in videos_playing {
+                        if let Err(e) = state.handle_stop_video(video_id, *addr).await {
+                            error!("Failed to stop video {video_id}: {e}");
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -4,13 +4,13 @@ use circular_buffer::CircularBuffer;
 use common::packet::{
     ClientPacket, NodePacket, Packet, ServerPacket, VideoListPacket, VideoPacket,
 };
+use common::reliable::ReliableUdpSocketError;
 use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use common::reliable::ReliableUdpSocketError;
 
 #[derive(PartialEq)]
 pub enum NodeStatus {

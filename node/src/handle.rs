@@ -24,6 +24,8 @@ impl State {
             answer_creation_date: SystemTime::now(),
         }));
 
+        self.last_pings.insert(addr, SystemTime::now());
+
         for video_id in requested_videos {
             self.handle_request_video(video_id, addr).await?;
         }
