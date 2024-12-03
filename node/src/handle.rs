@@ -61,6 +61,7 @@ impl State {
         if let Some(mut subscribers) = self.interested.get_mut(&video_id) {
             subscribers.retain(|&subscriber| subscriber != addr);
         }
+        info!("Removing subscriber {addr} from video {video_id}.");
 
         let remaining_subscribers = self
             .interested
@@ -69,6 +70,7 @@ impl State {
 
         if remaining_subscribers == 0 {
             if let Some((_, node_addr)) = self.video_routes.remove(&video_id) {
+                info!("No more subscribers for video {video_id}. Requesting to stop video to {node_addr}.");
                 let packet = Packet::ServerPacket(ServerPacket::StopVideo(video_id));
                 self.socket.send_reliable(&packet, node_addr).await?;
             }
