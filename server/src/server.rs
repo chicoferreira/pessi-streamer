@@ -1,6 +1,6 @@
 use crate::video;
 use common::packet::{Packet, ServerPacket, VideoPacket};
-use common::reliable::ReliableUdpSocket;
+use common::reliable::{ReliableUdpSocket, ReliableUdpSocketError};
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -163,6 +163,12 @@ pub async fn run_client_socket(state: State) -> anyhow::Result<()> {
                 continue;
             }
             Err(e) => {
+                if let ReliableUdpSocketError::IoError(e) = &e {
+                    if e.kind() == std::io::ErrorKind::ConnectionReset {
+                        // ignore flood on windows
+                        continue;
+                    }
+                }
                 error!("Failed to receive packet: {}", e);
                 continue;
             }

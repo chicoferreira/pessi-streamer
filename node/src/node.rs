@@ -1,6 +1,6 @@
 use circular_buffer::CircularBuffer;
 use common::packet::{FloodPacket, NodePacket, Packet, ServerPacket};
-use common::reliable::{ReliablePacketResult, ReliableUdpSocket};
+use common::reliable::{ReliablePacketResult, ReliableUdpSocket, ReliableUdpSocketError};
 use dashmap::DashMap;
 use log::{error, info, warn};
 use std::net::{IpAddr, SocketAddr};
@@ -118,9 +118,9 @@ impl State {
         let min_average_delay = self
             .available_routes
             .iter()
-            .filter(|entry| entry.value().status == RouteStatus::Active)
-            .filter(|entry| entry.value().videos.contains(&video_id))
-            .map(|entry| entry.value().average_delay_to_server())
+            .filter(|entry| entry.status == RouteStatus::Active)
+            .filter(|entry| entry.videos.contains(&video_id))
+            .map(|entry| entry.average_delay_to_server())
             .min()?;
 
         let max_delay_threshold =
@@ -132,10 +132,9 @@ impl State {
             .filter(|entry| entry.videos.contains(&video_id))
             .filter(|entry| entry.average_delay_to_server() <= max_delay_threshold)
             .min_by_key(|entry| {
-                let route_info = entry.value();
-                let hops = route_info.hops;
+                let hops = entry.hops;
                 let videos_requested = self.get_number_of_videos_requested_via_node(*entry.key());
-                let videos_available = route_info.videos.len();
+                let videos_available = entry.videos.len();
 
                 (hops, videos_requested, videos_available)
             })
@@ -226,13 +225,7 @@ impl State {
             .retain(|id| !to_remove.contains(id));
     }
 
-    pub async fn handle_unresponsive_node(&self, addr: SocketAddr, route_info: &mut RouteInfo) {
-        route_info.status = RouteStatus::Unresponsive;
-        let node_parents = match &route_info.node_type {
-            NodeType::Parent(parent_data) => parent_data.parents.clone(),
-            NodeType::Child => panic!("a node that can be marked as unresponsive is a parent"),
-        };
-
+    pub async fn handle_unresponsive_node(&self, addr: SocketAddr, parents: &[SocketAddr]) {
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
         let videos_from_addr: Vec<u8> = self
@@ -268,9 +261,13 @@ impl State {
         // some videos couldn't be redirected, try to connect to the parents of the unresponsive node
         if !remaining_videos.is_empty() {
             info!("Some videos couldn't be redirected to currently connected nodes.");
-            info!("Connecting to parents of unresponsive node {addr} to allocate {remaining_videos:?} videos...");
-            for addr in node_parents {
-                if let Err(e) = self.connect_to_node_parent(addr).await {
+            if parents.is_empty() {
+                info!("No parents to connect to. Remaining videos will be queued until a node that can stream them is available.");
+            } else {
+                info!("Connecting to parents ({parents:?}) of unresponsive node {addr} to allocate {remaining_videos:?} videos...");
+            }
+            for addr in parents {
+                if let Err(e) = self.connect_to_node_parent(*addr).await {
                     error!("Failed to connect to parent node {}: {}", addr, e);
                 }
             }
@@ -297,8 +294,12 @@ impl State {
     async fn handle_packet(&self, packet: Packet, addr: SocketAddr) -> anyhow::Result<()> {
         match packet {
             Packet::NodePacket(node_packet) => match node_packet {
-                NodePacket::ClientPing { sequence_number } => {
-                    self.handle_client_ping(sequence_number, addr).await?
+                NodePacket::ClientPing {
+                    sequence_number,
+                    requested_videos,
+                } => {
+                    self.handle_client_ping(sequence_number, requested_videos, addr)
+                        .await?
                 }
                 NodePacket::FloodPacket(packet) => self.handle_flood_packet(addr, packet).await,
                 NodePacket::NewNeighbour => self.register_new_neighbour(addr.ip()),
@@ -317,7 +318,9 @@ impl State {
 pub async fn run_check_neighbours_task(state: State) {
     loop {
         tokio::time::sleep(common::FLOOD_PACKET_INTERVAL).await;
-        for mut entry in state.available_routes.iter_mut() {
+        let mut unresponsive = vec![];
+
+        for entry in state.available_routes.iter() {
             let addr = *entry.key();
             let route_info = entry.value();
 
@@ -338,8 +341,15 @@ pub async fn run_check_neighbours_task(state: State) {
             if time_since_last_flood_packet > common::FLOOD_PACKET_INTERVAL * 3 {
                 warn!("Parent node {addr} hasn't sent a flood packet in {time_since_last_flood_packet:?}. Marking it as unresponsive.");
                 // Node is unresponsive mark it as such
-                state.handle_unresponsive_node(addr, &mut entry).await;
+                unresponsive.push((addr, parent_data.parents.clone()));
             }
+        }
+
+        // we need to do this in a separate loop to avoid having a mutable borrow of the route info
+        // while having the immutable borrow from the iterator
+        for (addr, parent_data) in unresponsive {
+            state.available_routes.get_mut(&addr).unwrap().status = RouteStatus::Unresponsive;
+            state.handle_unresponsive_node(addr, &parent_data).await;
         }
     }
 }
@@ -353,6 +363,12 @@ pub async fn run_packet_task(state: State) -> anyhow::Result<()> {
             Ok(Some(result)) => result,
             Ok(None) => continue, // Acknowledgement packet received
             Err(e) => {
+                if let ReliableUdpSocketError::IoError(e) = &e {
+                    if e.kind() == std::io::ErrorKind::ConnectionReset {
+                        // ignore flood on windows
+                        continue;
+                    }
+                }
                 error!("Failed to receive packet: {}", e);
                 continue;
             }

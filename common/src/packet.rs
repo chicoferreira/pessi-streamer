@@ -29,6 +29,10 @@ pub enum NodePacket {
         /// The sequence number of the ping packet
         /// Used to match the response with the request
         sequence_number: u64,
+        /// The list of currently requested videos
+        /// Used to know which videos the client is interested in when the
+        /// node dies and loses state, without having to send the `RequestVideo` packet again
+        requested_videos: Vec<u8>,
     },
 
     /// Received when a node wants to connect to the node receiving this packet

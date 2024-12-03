@@ -1,8 +1,9 @@
 #![allow(rustdoc::missing_crate_level_docs)]
 
-use crate::State;
+use crate::client::{NodeStatus, State};
 use eframe::egui;
 use egui::Spinner;
+use std::sync::atomic::Ordering;
 
 pub fn run_ui(state: State) -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -28,18 +29,25 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Servers:");
-            for server_entry in self.state.servers.iter() {
+            for server_entry in self.state.nodes.iter() {
                 let node = server_entry.value();
 
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
                         ui.label(format!("Server: {}", node.addr));
 
-                        if let Some(score) = node.average_rtt() {
-                            ui.label(format!("Average RTT: {:?}", score));
-                        } else {
-                            ui.add(Spinner::new());
-                            ui.label("Connecting...");
+                        match node.status {
+                            NodeStatus::Connecting => {
+                                ui.add(Spinner::new());
+                                ui.label("Connecting...");
+                            }
+                            NodeStatus::Connected => {
+                                ui.label(format!("Average RTT: {:?}", node.average_rtt()));
+                            }
+                            NodeStatus::Unresponsive => {
+                                ui.add(Spinner::new());
+                                ui.label("Unresponsive");
+                            }
                         }
                     });
                 });
@@ -48,28 +56,35 @@ impl eframe::App for MyApp {
             }
 
             ui.heading("Available Streams:");
-            if let Ok(streams) = self.state.video_list.read() {
-                if streams.len() > 0 {
-                    for (stream_id, stream_name) in streams.iter() {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{}: {}", stream_id, stream_name));
-                            if ui.button("Play").clicked() {
-                                self.state.start_playing_sync(*stream_id);
-                            }
-                            if ui.button("Stop").clicked() {
-                                self.state.stop_playing_id_sync(*stream_id);
-                            }
+            let streams = self.state.available_videos();
+            if !streams.is_empty() {
+                for stream_id in streams.iter() {
+                    ui.horizontal(|ui| {
+                        let stream_name = &*self.state.video_names.get(stream_id).unwrap();
+                        ui.label(format!("{}: {}", stream_id, stream_name));
 
-                            if let Some(video) = self.state.playing_videos.get(stream_id) {
-                                let bytes =
-                                    bytefmt::format(video.video_player.bytes_written() as u64);
-                                ui.label(format!("Bytes received: {bytes}"));
-                            }
-                        });
-                    }
-                } else {
-                    ui.spinner();
+                        let playing = self.state.playing_videos.contains_key(stream_id);
+                        if !playing && ui.button("Play").clicked() {
+                            self.state.ui_start_playing(*stream_id);
+                        }
+                        if playing && ui.button("Stop").clicked() {
+                            self.state.ui_stop_playing_id(*stream_id);
+                        }
+
+                        if let Some(video) = self.state.playing_videos.get(stream_id) {
+                            let bytes =
+                                bytefmt::format(video.bytes_written.load(Ordering::Relaxed) as u64);
+                            ui.label(format!("Bytes received: {bytes}"));
+
+                            match video.source {
+                                None => ui.add(Spinner::new()),
+                                Some(source) => ui.label(format!("from {source}")),
+                            };
+                        }
+                    });
                 }
+            } else {
+                ui.spinner();
             }
         });
     }

@@ -1,14 +1,13 @@
 use anyhow::Context;
-use std::io;
 use std::process::Stdio;
 use std::str::FromStr;
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, Command};
+use tokio::sync::mpsc::error::SendError;
 
 pub struct VideoPlayer {
-    bytes_written: usize,
-    process_child: Child,
-    process_stdin: ChildStdin,
+    _process_child: Child,
+    process_sender: tokio::sync::mpsc::Sender<Vec<u8>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,29 +50,31 @@ impl VideoPlayer {
             .launch()
             .context("Couldn't launch video player process.")?;
 
-        let process_stdin = process_child
+        let mut process_stdin = process_child
             .stdin
             .take()
             .ok_or_else(|| anyhow::anyhow!("Couldn't get stdin of video player process."))?;
 
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+
+        // this task will end when tx is dropped
+        tokio::spawn(async move {
+            while let Some(data) = rx.recv().await {
+                if let Err(e) = process_stdin.write_all(&data).await {
+                    log::error!("Couldn't write to video player stdin: {}", e);
+                    break;
+                }
+            }
+        });
+
         Ok(Self {
-            bytes_written: 0,
-            process_child,
-            process_stdin,
+            _process_child: process_child,
+            process_sender: tx,
         })
     }
 
-    pub async fn write(&mut self, data: &[u8]) -> io::Result<()> {
-        self.bytes_written += data.len();
-        self.process_stdin.write_all(data).await
-    }
-
-    pub async fn kill(&mut self) -> io::Result<()> {
-        self.process_child.kill().await
-    }
-
-    pub fn bytes_written(&self) -> usize {
-        self.bytes_written
+    pub async fn write(&self, data: Vec<u8>) -> Result<(), SendError<Vec<u8>>> {
+        self.process_sender.send(data).await
     }
 }
 
@@ -104,6 +105,7 @@ fn launch_ffplay() -> anyhow::Result<Child> {
         .args("-format mpegts -".split(' '))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
+        .kill_on_drop(true)
         .spawn()
         .context("Couldn't spawn ffplay process.")
 }
@@ -113,6 +115,7 @@ fn launch_mpv() -> anyhow::Result<Child> {
         .arg("-")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
+        .kill_on_drop(true)
         .spawn()
         .context("Couldn't spawn mpv process.")
 }

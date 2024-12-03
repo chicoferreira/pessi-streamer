@@ -14,6 +14,7 @@ impl State {
     pub async fn handle_client_ping(
         &self,
         sequence_number: u64,
+        requested_videos: Vec<u8>,
         addr: SocketAddr,
     ) -> anyhow::Result<()> {
         debug!("Received client ping from {}", addr);
@@ -22,6 +23,11 @@ impl State {
             videos: self.get_videos(),
             answer_creation_date: SystemTime::now(),
         }));
+
+        for video_id in requested_videos {
+            self.handle_request_video(video_id, addr).await?;
+        }
+
         self.socket.send_reliable(&packet, addr).await?;
         Ok(())
     }
@@ -70,7 +76,8 @@ impl State {
     }
 
     pub async fn handle_flood_packet(&self, from_addr: SocketAddr, flood_packet: FloodPacket) {
-        debug!("Received flood packet {flood_packet:?} from {from_addr}");
+        let sequence_number = flood_packet.sequence_number;
+        debug!("Received flood packet {sequence_number} from {from_addr}");
 
         // update video names
         for (id, video_name) in flood_packet.videos_available.clone() {
@@ -91,7 +98,6 @@ impl State {
         self.check_pending_videos(from_addr, &flood_packet.videos_available)
             .await;
 
-        let sequence_number = flood_packet.sequence_number;
         if sequence_number < last_flood_packet_sequence_number {
             // old packet in the network, ignore
             return;
