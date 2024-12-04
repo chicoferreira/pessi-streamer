@@ -5,6 +5,7 @@ use common::packet::{
     ClientPacket, NodePacket, Packet, ServerPacket, VideoListPacket, VideoPacket,
 };
 use common::reliable::ReliableUdpSocketError;
+use common::VideoId;
 use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
 use std::net::{IpAddr, SocketAddr};
@@ -24,7 +25,7 @@ pub struct Node {
     pub latest_rtts: CircularBuffer<10, Duration>,
     pub last_received_ping: Option<SystemTime>,
     pub status: NodeStatus,
-    pub available_videos: Vec<u8>,
+    pub available_videos: Vec<VideoId>,
 }
 
 impl Node {
@@ -38,7 +39,7 @@ impl Node {
         }
     }
 
-    fn register_ping_answer(&mut self, rtt: Duration, video_list: Vec<u8>) {
+    fn register_ping_answer(&mut self, rtt: Duration, video_list: Vec<VideoId>) {
         self.latest_rtts.push_back(rtt);
         self.last_received_ping = Some(SystemTime::now());
         self.status = NodeStatus::Connected;
@@ -70,9 +71,9 @@ pub struct State {
     /// The current sequence number to send ClientPing packets
     pub ping_sequence_number: Arc<AtomicU64>,
     /// The list of possible streams received by the nodes (stream_id, stream_name)
-    pub video_names: Arc<DashMap<u8, String>>,
+    pub video_names: Arc<DashMap<VideoId, String>>,
     /// The list of currently playing video processes
-    pub playing_videos: Arc<DashMap<u8, PlayingVideo>>,
+    pub playing_videos: Arc<DashMap<VideoId, PlayingVideo>>,
     /// The video player type to play the video
     pub video_player: VideoPlayerType,
 }
@@ -102,7 +103,7 @@ impl State {
         }
     }
 
-    pub fn available_videos(&self) -> Vec<u8> {
+    pub fn available_videos(&self) -> Vec<VideoId> {
         let mut videos: Vec<_> = self
             .nodes
             .iter()
@@ -115,7 +116,7 @@ impl State {
         videos
     }
 
-    fn get_videos_playing_from_node(&self, addr: SocketAddr) -> Vec<u8> {
+    fn get_videos_playing_from_node(&self, addr: SocketAddr) -> Vec<VideoId> {
         self.playing_videos
             .iter()
             .filter(|entry| entry.value().source == Some(addr))
@@ -123,7 +124,7 @@ impl State {
             .collect()
     }
 
-    async fn request_start_video(&self, addr: SocketAddr, video_id: u8) -> anyhow::Result<()> {
+    async fn request_start_video(&self, addr: SocketAddr, video_id: VideoId) -> anyhow::Result<()> {
         let packet = Packet::ServerPacket(ServerPacket::RequestVideo(video_id));
         self.socket
             .send_reliable(&packet, addr)
@@ -133,7 +134,7 @@ impl State {
         Ok(())
     }
 
-    async fn request_stop_video(&self, addr: SocketAddr, video_id: u8) -> anyhow::Result<()> {
+    async fn request_stop_video(&self, addr: SocketAddr, video_id: VideoId) -> anyhow::Result<()> {
         let packet = Packet::ServerPacket(ServerPacket::StopVideo(video_id));
         self.socket
             .send_reliable(&packet, addr)
@@ -143,7 +144,7 @@ impl State {
         Ok(())
     }
 
-    pub async fn select_best_server_and_request(&self, video_id: u8) -> Option<SocketAddr> {
+    pub async fn select_best_server_and_request(&self, video_id: VideoId) -> Option<SocketAddr> {
         let best_node_addr = self.select_best_node(video_id);
 
         if let Some(best_node_addr) = best_node_addr {
@@ -155,7 +156,7 @@ impl State {
         best_node_addr
     }
 
-    pub fn ui_start_playing(&self, video_id: u8) {
+    pub fn ui_start_playing(&self, video_id: VideoId) {
         let state = self.clone();
         tokio::spawn(async move {
             let best_node_addr = state.select_best_server_and_request(video_id).await;
@@ -172,7 +173,7 @@ impl State {
         });
     }
 
-    pub fn ui_stop_playing_id(&self, video_id: u8) {
+    pub fn ui_stop_playing_id(&self, video_id: VideoId) {
         let state = self.clone();
         tokio::spawn(async move {
             if let Some((video_id, video)) = state.playing_videos.remove(&video_id) {
@@ -208,14 +209,14 @@ impl State {
                 "Received ping answer from {addr} in {total_rtt:?} (TO: {to:?}, FROM: {from:?})"
             );
 
-            let videos: Vec<u8> = video_list_packet.videos.iter().map(|(id, _)| *id).collect();
+            let videos: Vec<_> = video_list_packet.videos.iter().map(|(id, _)| *id).collect();
             if let Some(mut node) = self.nodes.get_mut(&addr) {
                 node.register_ping_answer(total_rtt, videos.clone());
             } else {
                 warn!("Received ping answer from unknown node {}", addr);
             }
 
-            let pending_videos: Vec<u8> = self
+            let pending_videos: Vec<_> = self
                 .playing_videos
                 .iter_mut()
                 .filter(|entry| entry.value().source.is_none())
@@ -268,7 +269,7 @@ impl State {
         }
     }
 
-    fn select_best_node(&self, video_id: u8) -> Option<SocketAddr> {
+    fn select_best_node(&self, video_id: VideoId) -> Option<SocketAddr> {
         // Select the best node based on the following criteria (in order):
         // 1. Choose nodes whose average delay is within 30% of the minimum average delay
         // 2. Among these nodes, choose the one with the fewest videos requested
@@ -300,7 +301,11 @@ impl State {
             .map(|entry| *entry.key())
     }
 
-    fn start_video_process(&self, source: Option<SocketAddr>, video_id: u8) -> anyhow::Result<()> {
+    fn start_video_process(
+        &self,
+        source: Option<SocketAddr>,
+        video_id: VideoId,
+    ) -> anyhow::Result<()> {
         let video_player = VideoPlayer::launch(self.video_player)?;
         self.playing_videos.insert(
             video_id,

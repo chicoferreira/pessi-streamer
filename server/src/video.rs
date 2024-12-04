@@ -72,8 +72,6 @@ pub fn launch_video_process(
     info!("Starting ffmpeg process (version: {})", string);
 
     Command::new("ffmpeg")
-        // .arg("-hide_banner")
-        // .arg("-loglevel").arg("error")
         .arg("-re")
         .arg("-stream_loop")
         .arg("-1")

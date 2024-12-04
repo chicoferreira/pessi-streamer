@@ -1,3 +1,4 @@
+use crate::VideoId;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::time::SystemTime;
@@ -16,7 +17,7 @@ pub enum Packet {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VideoPacket {
-    pub stream_id: u8,
+    pub stream_id: VideoId,
     pub sequence_number: u64,
     pub stream_data: Vec<u8>,
 }
@@ -32,7 +33,7 @@ pub enum NodePacket {
         /// The list of currently requested videos
         /// Used to know which videos the client is interested in when the
         /// node dies and loses state, without having to send the `RequestVideo` packet again
-        requested_videos: Vec<u8>,
+        requested_videos: Vec<VideoId>,
     },
 
     /// Received when a node wants to connect to the node receiving this packet
@@ -49,7 +50,7 @@ pub struct FloodPacket {
     /// Used to calculate the best node to redirect a video
     pub created_at_server_time: SystemTime,
     /// The videos available in this node
-    pub videos_available: Vec<(u8, String)>,
+    pub videos_available: Vec<(VideoId, String)>,
     /// The nodes that have been visited by this packet
     /// Used to avoid loops
     pub visited_nodes: Vec<u64>,
@@ -67,9 +68,9 @@ impl FloodPacket {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ServerPacket {
     /// Request to start a video
-    RequestVideo(u8),
+    RequestVideo(VideoId),
     /// Request to stop a video
-    StopVideo(u8),
+    StopVideo(VideoId),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -81,7 +82,7 @@ pub enum ClientPacket {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VideoListPacket {
     pub sequence_number: u64,
-    pub videos: Vec<(u8, String)>,
+    pub videos: Vec<(VideoId, String)>,
     pub answer_creation_date: SystemTime,
 }
 

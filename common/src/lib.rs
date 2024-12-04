@@ -6,6 +6,8 @@ use std::time::Duration;
 /// Port used by the server and the nodes to communicate with each other
 pub const PORT: u16 = 8010;
 
+pub type VideoId = u64;
+
 pub const FLOOD_PACKET_INTERVAL: Duration = Duration::from_secs(1);
 pub const CLIENT_PING_INTERVAL: Duration = Duration::from_secs(1);
 pub const VIDEO_PACKET_MAX_DELAY: Duration = Duration::from_millis(500);

@@ -1,6 +1,7 @@
 use crate::video;
 use common::packet::{NodePacket, Packet, ServerPacket, VideoPacket};
 use common::reliable::{ReliableUdpSocket, ReliableUdpSocketError};
+use common::VideoId;
 use dashmap::DashMap;
 use log::{debug, error, info, trace};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -22,7 +23,7 @@ struct Video {
 pub struct State {
     id: u64,
     /// Map of video paths to interested subscribers
-    videos: Arc<DashMap<u8, Video>>,
+    videos: Arc<DashMap<VideoId, Video>>,
     clients_socket: ReliableUdpSocket,
     neighbours: Arc<RwLock<Vec<SocketAddr>>>,
 }
@@ -82,7 +83,7 @@ impl State {
             video::new_video_process(video_path.clone()).await?;
         let video_name = Self::get_video_name_from_path(&video_path, &video_folder)?;
 
-        let id = Self::get_video_id(&video_name) as u8;
+        let id = Self::get_video_id(&video_name);
         self.videos.insert(id, self.new_video(video_name.clone()));
 
         let child_future = async { child_process.wait().await };
@@ -141,7 +142,7 @@ impl State {
         }
     }
 
-    pub fn get_video_list(&self) -> Vec<(u8, String)> {
+    pub fn get_video_list(&self) -> Vec<(VideoId, String)> {
         self.videos
             .iter()
             .map(|entry| (*entry.key(), entry.value().name.clone()))

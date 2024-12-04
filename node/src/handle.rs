@@ -2,8 +2,8 @@ use crate::node::{NodeType, RouteStatus, State};
 use common::packet::{
     ClientPacket, FloodPacket, NodePacket, Packet, ServerPacket, VideoListPacket, VideoPacket,
 };
-use common::reliable;
 use common::reliable::{ReliablePacketResult, ReliableUdpSocketError};
+use common::{reliable, VideoId};
 use log::{error, info, trace, warn};
 use std::cmp;
 use std::net::SocketAddr;
@@ -14,7 +14,7 @@ impl State {
     pub async fn handle_client_ping(
         &self,
         sequence_number: u64,
-        requested_videos: Vec<u8>,
+        requested_videos: Vec<VideoId>,
         addr: SocketAddr,
     ) -> anyhow::Result<()> {
         trace!("Received client ping from {}", addr);
@@ -45,7 +45,11 @@ impl State {
         Ok(())
     }
 
-    pub async fn handle_request_video(&self, video_id: u8, addr: SocketAddr) -> anyhow::Result<()> {
+    pub async fn handle_request_video(
+        &self,
+        video_id: VideoId,
+        addr: SocketAddr,
+    ) -> anyhow::Result<()> {
         let mut interested = self.interested.entry(video_id).or_default();
         if !interested.value().contains(&addr) {
             interested.value_mut().push(addr);
@@ -74,7 +78,11 @@ impl State {
         Ok(())
     }
 
-    pub async fn handle_stop_video(&self, video_id: u8, addr: SocketAddr) -> anyhow::Result<()> {
+    pub async fn handle_stop_video(
+        &self,
+        video_id: VideoId,
+        addr: SocketAddr,
+    ) -> anyhow::Result<()> {
         if let Some(mut subscribers) = self.interested.get_mut(&video_id) {
             subscribers.retain(|&subscriber| subscriber != addr);
         }

@@ -1,6 +1,7 @@
 use circular_buffer::CircularBuffer;
 use common::packet::{FloodPacket, NodePacket, Packet, ServerPacket};
 use common::reliable::{ReliablePacketResult, ReliableUdpSocket, ReliableUdpSocketError};
+use common::VideoId;
 use dashmap::DashMap;
 use log::{error, info, warn};
 use std::net::{IpAddr, SocketAddr};
@@ -33,7 +34,7 @@ pub enum NodeType {
 pub struct RouteInfo {
     hops: usize,
     last_delays_to_server: CircularBuffer<10, Duration>,
-    available_videos: Vec<u8>,
+    available_videos: Vec<VideoId>,
     pub status: RouteStatus,
     pub node_type: NodeType,
 }
@@ -75,21 +76,21 @@ pub struct State {
     /// The udp socket to communicate with other nodes
     pub socket: ReliableUdpSocket,
     /// The known names of the videos
-    pub video_names: Arc<DashMap<u8, String>>,
+    pub video_names: Arc<DashMap<VideoId, String>>,
     /// Map of video_id to list of clients interested in that video
-    pub interested: Arc<DashMap<u8, Vec<SocketAddr>>>,
+    pub interested: Arc<DashMap<VideoId, Vec<SocketAddr>>>,
     /// Map of last received pings from the clients
     pub last_pings: Arc<DashMap<SocketAddr, SystemTime>>,
     /// All the possible routes to reach the server
     pub available_routes: Arc<DashMap<SocketAddr, RouteInfo>>,
     /// The videos that are being received
-    pub video_routes: Arc<DashMap<u8, SocketAddr>>,
+    pub video_routes: Arc<DashMap<VideoId, SocketAddr>>,
     /// Last sequence number received to calculate video packet losses
-    pub last_video_sequence_number: Arc<DashMap<u8, u64>>,
+    pub last_video_sequence_number: Arc<DashMap<VideoId, u64>>,
     /// Last time a video packet was received
-    pub last_video_packet_time: Arc<DashMap<u8, SystemTime>>,
+    pub last_video_packet_time: Arc<DashMap<VideoId, SystemTime>>,
     /// Used to store video requests that couldn't be redirected because there were no available nodes
-    pub pending_video_requests: Arc<RwLock<Vec<u8>>>,
+    pub pending_video_requests: Arc<RwLock<Vec<VideoId>>>,
 }
 
 impl State {
@@ -109,7 +110,7 @@ impl State {
         }
     }
 
-    pub fn get_best_node_to_redirect(&self, video_id: u8) -> Option<SocketAddr> {
+    pub fn get_best_node_to_redirect(&self, video_id: VideoId) -> Option<SocketAddr> {
         // Select the best node based on the following criteria (in order):
         // 1. Choose nodes whose average delay is within 30% of the minimum average delay
         // 2. Among these nodes, choose the one with the fewest hops
@@ -150,7 +151,7 @@ impl State {
             .count()
     }
 
-    pub fn get_videos(&self) -> Vec<(u8, String)> {
+    pub fn get_videos(&self) -> Vec<(VideoId, String)> {
         self.video_names
             .iter()
             .map(|entry| (*entry.key(), entry.value().clone()))
@@ -203,7 +204,7 @@ impl State {
     pub async fn check_pending_videos(
         &self,
         from_addr: SocketAddr,
-        received_video_list: &[(u8, String)],
+        received_video_list: &[(VideoId, String)],
     ) {
         let to_remove: Vec<_> = self
             .pending_video_requests
@@ -231,14 +232,14 @@ impl State {
     pub async fn handle_unresponsive_node(&self, addr: SocketAddr) {
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
-        let videos_receiving: Vec<u8> = self
+        let videos_receiving: Vec<VideoId> = self
             .video_routes
             .iter()
             .filter(|entry| *entry.value() == addr)
             .map(|entry| *entry.key())
             .collect();
 
-        let videos_sending: Vec<u8> = self
+        let videos_sending: Vec<VideoId> = self
             .interested
             .iter()
             .filter(|entry| entry.contains(&addr))
@@ -312,7 +313,7 @@ impl State {
 
     pub async fn request_video_to_node(
         &self,
-        video_id: u8,
+        video_id: VideoId,
         node: SocketAddr,
     ) -> anyhow::Result<()> {
         let packet = Packet::ServerPacket(ServerPacket::RequestVideo(video_id));
