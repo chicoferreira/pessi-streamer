@@ -7,7 +7,6 @@ use common::reliable::{ReliablePacketResult, ReliableUdpSocketError};
 use log::{error, info, trace, warn};
 use std::cmp;
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 use tokio::sync::oneshot;
 
@@ -27,10 +26,18 @@ impl State {
 
         self.last_pings.insert(addr, SystemTime::now());
 
-        for video_id in requested_videos {
-            if !self.video_routes.contains_key(&video_id) {
+        for video_id in &requested_videos {
+            if !self.video_routes.contains_key(video_id) {
                 info!("{addr} requested video {video_id}.");
-                self.handle_request_video(video_id, addr).await?;
+                self.handle_request_video(*video_id, addr).await?;
+            }
+        }
+
+        for video in self.interested.iter() {
+            let (video_id, interested) = video.pair();
+            if !requested_videos.contains(video_id) && interested.contains(&addr) {
+                info!("{addr} is not interested in video {video_id} anymore.");
+                self.handle_stop_video(*video_id, addr).await?;
             }
         }
 
@@ -90,8 +97,7 @@ impl State {
     }
 
     pub async fn handle_flood_packet(&self, from_addr: SocketAddr, flood_packet: FloodPacket) {
-        let sequence_number = flood_packet.sequence_number;
-        trace!("Received flood packet {sequence_number} from {from_addr}");
+        trace!("Received flood packet from {from_addr}");
 
         if flood_packet.visited_nodes.contains(&self.id) {
             // loop detected, ignore
@@ -120,24 +126,13 @@ impl State {
         self.check_pending_videos(from_addr, &flood_packet.videos_available)
             .await;
 
-        let last_flood_packet_sequence_number = self
-            .last_flood_packet_sequence_number
-            .load(Ordering::Relaxed);
-
-        if sequence_number < last_flood_packet_sequence_number {
-            // old packet in the network, ignore
-            return;
-        }
-
-        self.last_flood_packet_sequence_number
-            .store(sequence_number, Ordering::Relaxed);
-
         let mut visited_nodes = flood_packet.visited_nodes;
         visited_nodes.push(self.id);
 
         let flood_packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
             my_parents: self.get_parents(),
             visited_nodes,
+            videos_available: self.get_videos(),
             ..flood_packet
         }));
 
@@ -202,7 +197,7 @@ impl State {
             .unwrap_or(sequence_number);
 
         let stream_data_len = packet.stream_data.len();
-        trace!("Received video packet (stream={stream_id}, seq={sequence_number}, n={stream_data_len}) from {addr}");
+        trace!(target: "node::video", "Received video packet (stream={stream_id}, seq={sequence_number}, n={stream_data_len}) from {addr}");
 
         self.last_video_packet_time
             .insert(stream_id, SystemTime::now());
@@ -224,7 +219,7 @@ impl State {
         if let Some(subscribers) = self.interested.get(&stream_id) {
             let subscribers = subscribers.clone();
 
-            trace!("Sending video packet (stream={stream_id}, seq={sequence_number}) to {subscribers:?}");
+            trace!(target: "node::video", "Sending video packet (stream={stream_id}, seq={sequence_number}) to {subscribers:?}");
 
             let packet = Packet::VideoPacket(packet);
 

@@ -4,6 +4,7 @@ use clap::{command, Parser};
 use env_logger::Env;
 use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 
 mod server;
 mod video;
@@ -13,11 +14,11 @@ mod video;
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Server IP address
-    #[arg(short, long, default_value="0.0.0.0")]
+    #[arg(short, long, default_value = "0.0.0.0")]
     ip: IpAddr,
     /// Path to the videos directory
     #[arg(short, long, default_value = "videos")]
-    videos: String,
+    videos: PathBuf,
 }
 
 #[tokio::main]
@@ -51,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
         _ = tokio::signal::ctrl_c() => info!("Received Ctrl-C, shutting down..."),
         r = tokio::spawn(server::flood::run_periodic_flood_packets(state.clone())) =>
             error!("Periodic flood packets task ended unexpectedly: {r:?}"),
-        r = tokio::spawn(server::watch_video_folder(state.clone())) =>
+        r = tokio::spawn(server::watch_video_folder(state.clone(), args.videos)) =>
             error!("Watch video folder task ended unexpectedly: {r:?}"),
         r = tokio::spawn(server::run_client_socket(state)) =>
             error!("Client socket task ended unexpectedly: {r:?}"),

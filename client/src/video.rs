@@ -55,7 +55,7 @@ impl VideoPlayer {
             .take()
             .ok_or_else(|| anyhow::anyhow!("Couldn't get stdin of video player process."))?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1024);
 
         // this task will end when tx is dropped
         tokio::spawn(async move {

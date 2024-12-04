@@ -103,10 +103,16 @@ impl State {
     }
 
     pub fn available_videos(&self) -> Vec<u8> {
-        self.nodes
+        let mut videos: Vec<_> = self
+            .nodes
             .iter()
             .flat_map(|node| node.value().available_videos.clone())
-            .collect()
+            .collect();
+
+        videos.sort_unstable();
+        videos.dedup();
+
+        videos
     }
 
     fn get_videos_playing_from_node(&self, addr: SocketAddr) -> Vec<u8> {
@@ -336,17 +342,20 @@ pub async fn handle_unresponsive_pings_nodes_task(state: State) {
                 node.status = NodeStatus::Unresponsive;
             }
 
-            let requested_videos = state
+            let requested_videos: Vec<_> = state
                 .playing_videos
                 .iter_mut()
-                .filter(|entry| entry.value().source == Some(addr));
+                .filter(|entry| entry.value().source == Some(addr))
+                .map(|entry| *entry.key())
+                .collect();
 
-            for mut entry in requested_videos {
-                let video_id = *entry.key();
+            for video_id in requested_videos {
                 let addr = state.select_best_server_and_request(video_id).await;
-                entry.source = addr;
+                if let Some(mut video) = state.playing_videos.get_mut(&video_id) {
+                    video.source = addr;
+                }
                 if let Some(addr) = addr {
-                    warn!("Redirecting video {video_id} from unresponsive node to {addr}");
+                    info!("Redirecting video {video_id} from unresponsive node to {addr}");
                 } else {
                     warn!(
                         "Couldn't find any more servers to redirect video {video_id}. Waiting..."

@@ -4,7 +4,6 @@ use common::reliable::{ReliablePacketResult, ReliableUdpSocket, ReliableUdpSocke
 use dashmap::DashMap;
 use log::{error, info, warn};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
@@ -89,8 +88,6 @@ pub struct State {
     pub last_video_sequence_number: Arc<DashMap<u8, u64>>,
     /// Last time a video packet was received
     pub last_video_packet_time: Arc<DashMap<u8, SystemTime>>,
-    /// Last sequence number received in a flood packet, used to ignore old packets
-    pub last_flood_packet_sequence_number: Arc<AtomicU64>,
     /// Used to store video requests that couldn't be redirected because there were no available nodes
     pub pending_video_requests: Arc<RwLock<Vec<u8>>>,
 }
@@ -108,7 +105,6 @@ impl State {
             video_routes: Default::default(),
             last_video_sequence_number: Default::default(),
             last_video_packet_time: Default::default(),
-            last_flood_packet_sequence_number: Default::default(),
             pending_video_requests: Default::default(),
         }
     }
@@ -160,9 +156,10 @@ impl State {
             .map(|entry| (*entry.key(), entry.value().clone()))
             // filter that we have a node that can transmit this video at the moment
             .filter(|(id, _)| {
-                self.available_routes
-                    .iter()
-                    .any(|entry| entry.value().available_videos.contains(id))
+                self.available_routes.iter().any(|entry| {
+                    entry.value().status == RouteStatus::Active
+                        && entry.value().available_videos.contains(id)
+                })
             })
             .collect()
     }
@@ -254,13 +251,13 @@ impl State {
             (true, false) => info!("Node {addr} is unresponsive. Stopping videos {videos_sending:?}..."),
             (false, false) => info!("Node {addr} is unresponsive. Redirecting videos {videos_receiving:?} and stopping videos {videos_sending:?}..."),
         }
-        
+
         for video_id in &videos_sending {
             if let Err(e) = self.handle_stop_video(*video_id, addr).await {
                 error!("Failed to stop video {video_id} to {addr}: {e}");
             }
         }
-        
+
         // Remove all videos that were being received from the
         // unresponsive node and redirect them to another node
         let mut remaining_videos = vec![];
@@ -296,6 +293,10 @@ impl State {
                 info!("Connecting to parents ({node_parents:?}) of unresponsive node {addr} to allocate {remaining_videos:?} videos...");
             }
             for addr in node_parents {
+                if addr == self.socket.local_addr().unwrap() {
+                    // ignore connecting to self
+                    continue;
+                }
                 if let Err(e) = self.connect_to_node_parent(addr).await {
                     error!("Failed to connect to parent node {}: {}", addr, e);
                 }

@@ -1,5 +1,6 @@
 use crate::node::State;
 use clap::{command, Parser};
+use env_logger::Env;
 use log::{error, info};
 use std::net::{IpAddr, SocketAddr};
 
@@ -17,9 +18,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Debug)
-        .init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
 
     let args = Args::parse();
     let node_addr = SocketAddr::new(args.ip, common::PORT);

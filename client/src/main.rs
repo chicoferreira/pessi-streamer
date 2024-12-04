@@ -20,7 +20,7 @@ struct Args {
     stream: Option<String>,
 
     /// Possible servers to connect to
-    #[arg(short, long)]
+    #[arg(short, long, num_args = 0..)]
     servers: Vec<IpAddr>,
 
     /// The video player to use

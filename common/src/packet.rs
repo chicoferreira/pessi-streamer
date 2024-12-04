@@ -45,10 +45,6 @@ pub enum NodePacket {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FloodPacket {
-    /// The sequence number of the packet
-    /// Each times a server sends a flood packet, this number is increased
-    /// Used to ignore old packets that may be received after a long time
-    pub sequence_number: u64,
     /// The time the packet was created at the server
     /// Used to calculate the best node to redirect a video
     pub created_at_server_time: SystemTime,

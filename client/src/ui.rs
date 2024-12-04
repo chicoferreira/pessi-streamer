@@ -28,13 +28,13 @@ struct MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Servers:");
+            ui.heading("Nodes:");
             for server_entry in self.state.nodes.iter() {
                 let node = server_entry.value();
 
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label(format!("Server: {}", node.addr));
+                        ui.label(format!("Node: {}", node.addr));
 
                         match node.status {
                             NodeStatus::Connecting => {

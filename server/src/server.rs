@@ -222,9 +222,7 @@ fn get_files(dir: &PathBuf) -> Vec<PathBuf> {
         .collect()
 }
 
-pub async fn watch_video_folder(state: State) -> anyhow::Result<()> {
-    let video_folder = PathBuf::from("./videos");
-
+pub async fn watch_video_folder(state: State, video_folder: PathBuf) -> anyhow::Result<()> {
     loop {
         for video in get_files(&video_folder) {
             if !state.contains_video(&video, &video_folder) {
@@ -246,18 +244,13 @@ pub mod flood {
 
     pub async fn run_periodic_flood_packets(state: State) -> anyhow::Result<()> {
         info!("Starting periodic flood packets to neighbours");
-        let mut sequence_number = 0;
-
         loop {
             let packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
-                sequence_number,
                 created_at_server_time: SystemTime::now(),
                 videos_available: state.get_video_list(),
                 visited_nodes: vec![state.id],
                 my_parents: vec![],
             }));
-
-            sequence_number += 1;
 
             let neighbours = state.neighbours.read().unwrap().clone();
             state
