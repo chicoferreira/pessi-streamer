@@ -348,7 +348,7 @@ Todos os pacotes, exceto os pacotes de vídeo, são enviados de forma _reliable_
 
 == Algoritmo de Escolha
 
-Tanto os clientes, como os _nodes_ precisam de escolher quando o melhor próximo _node_ para contactar, quando é pedido um pacote de começar uma _stream_.
+Tanto os clientes quanto os _nodes_ precisam considerar qual é o melhor _node_ para contactar ao solicitar os pacotes de uma _stream_.
 
 Para isso, é levado em conta o RTT entre os vários vizinhos (ou _point of presence_ no caso do cliente). Caso existam falhas na rede, como o pacote será retransmitido, o RTT será maior, e então o vizinho dificilmente será escolhido como melhor nó.
 
