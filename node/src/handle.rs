@@ -20,7 +20,7 @@ impl State {
         trace!("Received client ping from {}", addr);
         let packet = Packet::ClientPacket(ClientPacket::VideoList(VideoListPacket {
             sequence_number,
-            videos: self.get_videos(),
+            videos: self.get_videos(addr),
             answer_creation_date: SystemTime::now(),
         }));
 
@@ -137,17 +137,6 @@ impl State {
         let mut visited_nodes = flood_packet.visited_nodes;
         visited_nodes.push(self.id);
 
-        let flood_packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
-            my_parents: self.get_parents(),
-            visited_nodes,
-            videos_available: self.get_videos(),
-            ..flood_packet
-        }));
-
-        self.broadcast_flood_packet(from_addr, flood_packet).await;
-    }
-
-    async fn broadcast_flood_packet(&self, from_addr: SocketAddr, flood_packet: Packet) {
         let broadcast_to: Vec<SocketAddr> = self
             .neighbours
             .read()
@@ -157,12 +146,20 @@ impl State {
             .filter(|addr| *addr != from_addr)
             .collect();
 
-        trace!("Broadcasting flood packet ({flood_packet:?}) to {broadcast_to:?}");
+        trace!("Broadcasting flood packet to {broadcast_to:?}");
 
         for addr in broadcast_to {
+            let flood_packet = Packet::NodePacket(NodePacket::FloodPacket(FloodPacket {
+                my_parents: self.get_parents(),
+                visited_nodes: visited_nodes.clone(),
+                videos_available: self.get_videos(addr),
+                ..flood_packet
+            }));
+            
             let result = self.socket.send_reliable(&flood_packet, addr).await;
             tokio::spawn(self.clone().handle_send_flood_packet_result(addr, result));
         }
+        
     }
 
     async fn handle_send_flood_packet_result(

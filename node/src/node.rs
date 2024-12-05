@@ -151,14 +151,17 @@ impl State {
             .count()
     }
 
-    pub fn get_videos(&self) -> Vec<(VideoId, String)> {
+    pub fn get_videos(&self, to: SocketAddr) -> Vec<(VideoId, String)> {
         self.video_names
             .iter()
             .map(|entry| (*entry.key(), entry.value().clone()))
             // filter that we have a node that can transmit this video at the moment
             .filter(|(id, _)| {
                 self.available_routes.iter().any(|entry| {
-                    entry.value().status == RouteStatus::Active
+                    // if we can only get a video from a parent, we can't send him a flood packet that 
+                    // contains the video, otherwise loops happen
+                    entry.key() != &to
+                        && entry.value().status == RouteStatus::Active
                         && entry.value().available_videos.contains(id)
                 })
             })
