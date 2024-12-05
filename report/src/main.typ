@@ -214,8 +214,6 @@ Como forma de dar uma melhor experiência ao utilizador final, o grupo decidiu d
   image("assets/egui.png"),
 )
 
-#todo[Se calhar altera-se a nomenclatura disto de Servers para Points of Presence e tira-se outra print também com mais points of presence ligados]
-
 A interface é responsável por criar uma instância de um _player_ capaz de mostrar a _stream_, quando clicado no botão "Play". Quando a _stream_ está a ser reproduzida, o utilizador pode simplesmente fechar o _player_ ou clicar no botão "Stop", que aparecerá no mesmo lugar do botão "Play".
 
 #pagebreak()
