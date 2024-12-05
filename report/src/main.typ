@@ -48,11 +48,10 @@
   )
 }
 
-
 = Introdução
 Este relatório tem como objetivo apresentar o trabalho prático desenvolvido durante a unidade curricular de Engenharia de Serviços em Rede. O trabalho consistiu no desenvolvimento de um serviço _over the top_ para a entrega de conteúdos multimédia em tempo real. O relatório terá como objetivo apresentar a arquitetura do sistema, a sua descrição, implementação e as decisões tomadas durante o desenvolvimento do mesmo.
 
-Uma das liberdades dadas pela equipa docente foi a da escolha da linguagem de programação para o desenvolvimento do projeto. O nosso grupo decidiu optar por Rust. Esta escolha permitiu-nos desenvolver um sistema muito performante e seguro sem grandes esforços.
+Uma das liberdades dadas pela equipa docente foi a da escolha da linguagem de programação para o desenvolvimento do projeto. O grupo optou por Rust. Esta escolha permitiu-nos desenvolver um sistema muito performante e seguro, sem grandes esforços.
 
 = Arquitetura
 Tal como mencionado anteriormente, neste trabalho pretende-se a criação de um sistema de entrega de conteúdos multimédia em tempo real, a partir de um, ou mais, servidores de _streaming_ para um dado conjunto de clientes. Este sistema deverá estar assente em cima de uma rede _overlay_ própria.
@@ -63,7 +62,7 @@ A chave para um bom funcionamento do sistema como um todo está na monitorizaç�
 
 O fluxo das _streams_, propriamente ditas, está ao encargo do (ou dos) *servidor*. Uma vez que se pretende um serviço em tempo real (e não _on demand_) parte-se do princípio de que o servidor estará sempre a enviar os _bytes_ codificados das _streams_ existentes e a propagar para a rede, quando necessário #footnote[Por necessário entenda-se existirem clientes interessados numa determinada _stream_.]. Estes _bytes_ são, então, depois enviados para a rede de entrega, navegando através da árvore de distribuição.
 
-As possíveis ligações de cada um dos nodos é ditada a partir do *bootstrapper*. Este contém um ficheiro de configuração com a lista de vizinhos de todos os nodos. Quando iniciado este programa, abre um _socket_ onde os *nodes* e os *servidores* contactam para se informarem dos seus vizinhos. O *bootstrapper* só serve para a inicialização dos nodos/servidor e não é mais usado após isso.
+As possíveis ligações de cada um dos nodos é ditada a partir do *bootstrapper*. Este contém um ficheiro de configuração com a lista de vizinhos de todos os nodos. Quando iniciado este programa, é aberto um _socket_ por onde os *nodes* e os *servidores* se podem conectar, obtendo informação dos seus vizinhos. De notar que o *bootstrapper* só serve para a inicialização dos nodos/servidor e não é usado para mais nada.
 
 De seguida, apresentamos um diagrama arquitetural genérico que tem como objetivo apresentar de que forma os diferentes componentes do sistema se dispõem e comunicam entre si.
 
@@ -74,7 +73,7 @@ De seguida, apresentamos um diagrama arquitetural genérico que tem como objetiv
 
 É possível observar que o protocolo de transporte utilizado em praticamente todo o sistema é o UDP. Esta escolha baseia-se, principalmente, na performance que um protocolo como estes nos poderá dar, se em comparação com o TCP.
 
-De facto, dentro da rede de entrega, a utilização de um protocolo como o TCP não traria qualquer vantagem, a não ser para pacotes de controlo e informação de metadados trocadas entre os nodos. Para esses casos em que é necessário assegurar que os pacotes cheguem ao destino corretamente, existe então a noção de pacotes _reliable_, e o seu oposto, pacotes _unreliable_. Entraremos em mais detalhe numa secção abaixo.
+De facto, dentro da rede de entrega, a utilização de um protocolo como o TCP não traria qualquer vantagem, a não ser para pacotes de controlo e de metadados trocados entre os nodos. Para esses casos em que é necessário assegurar que os pacotes chegam, efetivamente, ao destino, existe a noção de pacotes _reliable_, e o seu oposto, pacotes _unreliable_. Entraremos em mais detalhe numa secção mais em baixo.
 
 = Construção da Topologia Overlay
 Para a construção da topologia _overlay_ o grupo decidiu optar pela abordagem baseada num controlador, o *_bootstrapper_*.
@@ -144,7 +143,7 @@ Quando o _node_/servidor recebe a resposta, pode prosseguir na sua inicializaç�
 = Cliente
 Este componente é a ponte entre o utilizador real e o resto do sistema. O mesmo é responsável por listar e reproduzir _streams_ disponíveis na rede.
 
-O cliente recebe por parâmetro a lista de _point of presences_ que se pode conectar. Quando o programa do cliente inicia, conecta-se a esses _PoP_ e aguarda pela resposta da lista de _streams_ disponíveis, onde o cliente pode selecionar uma ou mais para visualizar.
+O cliente recebe por parâmetro a lista de _point of presences_ que se pode conectar. Quando o programa do cliente inicia, conecta-se a esses _point of presence_ e aguarda pela resposta da lista de _streams_ disponíveis, onde o cliente pode selecionar uma ou mais para visualizar.
 
 Após a seleção de uma _stream_ a visualizar, o cliente contacta o melhor _point of presence_ para solicitar a _stream_. De realçar que é possível que um mesmo cliente visualize várias _streams_ ao mesmo tempo e enviadas por _point of presence_ diferentes.
 
@@ -157,7 +156,7 @@ O _point of presence_ também envia o _timestamp_ de quando o pacote de _ping_ c
 
 A métrica aqui utilizada para a escolha do _point of presence_ é a média do _round trip time_ (RTT) num dado intervalo de tempo. Métrica que vai sendo calculada à medida que os clientes enviam _pings_ para os diversos _point of presence_.
 
-Como estamos a usar UDP, perdas de pacotes podem acontecer. A forma como isso impacta o uso do RTT para a seleção do melhor _point of presence_ será explicada numa secção abaixo.
+Uma vez que estamos a usar UDP, temos de lidar com possíveis perdas de pcoates. A forma como isso impacta o uso do RTT para a seleção do melhor _point of presence_ será explicada numa secção abaixo.
 
 De seguida, encontra-se o pacote enviado por parte de um cliente para cada um dos _point of presence_ existentes.
 
@@ -192,19 +191,10 @@ E, agora, a resposta enviada pelo _point of presence_ contactado.
   ),
 )
 
-== Streaming do vídeo
+== Troca de Point of Presence
+Quando um _point of presence_ é dado como irresponsivo, todas as _streams_ providenciadas por ele são reencaminhadas para o melhor _point of presence_ atualmente. 
 
-Quando o cliente escolhe um vídeo para reproduzir, é enviado um pacote de pedido de vídeo para o _point of presence_. Esse _PoP_ é responsável por reencaminhar esse pacote para o melhor _node_ que ele conhece, recursivamente, até chegar ao servidor que contenha esse vídeo.
-
-Quando o servidor recebe o pacote, começa a enviar os pacotes de vídeo referentes ao vídeo pedido pelo caminho escolhido, até chegar de volta ao cliente.
-
-Agora, o cliente deve começar a receber os pacotes de vídeo, onde são reencaminhados para o _player_ iniciado. Este _player_ é, por omissão, o #link("https://mpv.io/")[MPV], mas também pode ser o `ffplay`, onde é possível alterá-lo passando-o por argumento do programa. Caso o utilizador não tenha o MPV ou o ffplay instalado no computador, é enviado uma mensagem de erro no começo do programa.
-
-== Deteção de falhas
-
-O cliente envia pacotes de ping para todos os _point of presence_ que conhece continuamente. Caso um _point of presence_ não responda aos pacotes de _ping_ passado 3 vezes o intervalo entre pacotes, esse _PoP_ é determinado como `Unresponsive`. Este intervalo de pacotes tem de valor de 1 segundo, valor este que foi idealizado para encontrar um meio termo entre não causar peso desnecessário na rede, mas ao mesmo tempo o cliente detetar rápido mortes de _PoPs_.
-
-Quando um _PoP_ é determinado como `Unresponsive`, todas as _streams_ providenciadas por ele são reencaminhadas para o melhor _PoP_ atualmente. Como o _PoP_ anterior foi determinado como _Unresponsive_ este já não pode ser o melhor. Caso não haja _PoPs_ que consigam providenciar o vídeo, o vídeo é colocado numa fila à espera. Quando existir um _PoP_ que consiga reproduzir o vídeo (ou o _PoP_ morto voltar à vida), o cliente pede o vídeo a esse _PoP_ e continua a reprodução do vídeo.
+Caso não existam _points of presence_ que consigam providenciar o vídeo, o vídeo é colocado numa fila à espera. Na altura em que voltar a existir um _point of presence_ que consiga reproduzir o vídeo (ou o _point of presence_ morto voltar à vida), o cliente pede o vídeo a esse _point of presence_ e continua a reprodução normal do vídeo.
 
 == Interface Gráfica
 Como forma de dar uma melhor experiência ao utilizador final, o grupo decidiu desenvolver uma interface gráfica. Esta interface demonstra a lista de _streams_ disponíveis para consumo, tal como opções para começar ou parar uma dita _stream_. Possui ainda informação relevante relacionada aos _point of presence_ conhecidos pelo cliente.
@@ -267,16 +257,14 @@ Novamente, o processo em 2. ocorre recursivamente até que algures exista um _no
 De realçar, ainda, que tal como no caso do cliente, onde existe uma monitorização constante dos _point of presence_ existentes, aqui, de certa forma, também acontece. Essencialmente, caso um _point of presence_ detete que não recebe um _ping_ de um cliente interessado há pelo menos três intervalos de _ping_ #footnote[Valor atualmente definido para 3 segundos, 1 segundo por cada _ping_, mas facilmente configurável.], assume o cliente como morto, desativando os fluxos criados e, caso não existam outros clientes interessados nas ditas _streams_, envia um pedido de paragem para o seu parente, que se processa exatamente como mencionado anteriormente.
 
 = Servidor
-
 O servidor é o componente responsável por gerar os pacotes de streaming e enviá-los para a rede de entrega. Este componente é o único que tem acesso direto às _streams_ e é o responsável por propagar para a rede. O servidor é, também, o que envia pacotes de _flood_ periodicamente, como objetivo de manter a árvore de distribuição atualizada.
 
 == Streaming
+Para suporte de _streaming_ de vídeos em tempo real com alta qualidade, o grupo optou pelo uso do `ffmpeg` para a conversão de vídeos em qualquer formato (automaticamente detetados pelo `ffmpeg`) para o formato `h264`, em vídeo, e `aac` em áudio. Os _bytes_ gerados pelos _codecs_ são encapsulados em pacotes MPEG-TS.
 
-Para suporte de _streaming_ de vídeos em tempo real com alta qualidade, o grupo optou pelo uso do `ffmpeg` para a conversão de vídeos em qualquer formato (automaticamente detetados pelo `ffmpeg`) para o formato `h264` com `aac` para o áudio. Os _bytes_ gerados pelos _codecs_ são encapsulados em pacotes `MPEG-TS`.
+Esta instância do `ffmpeg` é criada no início do programa, para todos os vídeos presentes na pasta de vídeos. Esta pasta de vídeos é passada como parâmetro ao programa.
 
-Esta instância do `ffmpeg` é criada no início do programa, para todos os vídeos presentes na pasta de vídeos. Esta pasta de vídeos é passada como parâmetro ao programa. O programa também deteta mudanças nessa pasta e pode criar instâncias do `ffmpeg` para novos vídeos adicionados.
-
-Para cada vídeo, também é gerado um identificador numérico único, para evitar que seja necessário enviar o nome da _stream_ em cada pacote de vídeo, gastando assim menos _bytes_ na rede. Este identificador é gerado a partir do nome do vídeo, sendo este um número de 64 bits. É de notar que é possível haver colisões de identificadores, mas devido ao número ser tão grande, a probabilidade de tal acontecer é extremamente baixa.
+Ainda, para cada vídeo, é gerado um identificador numérico único, para evitar que seja necessário enviar o nome da _stream_ em cada pacote de vídeo, gastando assim menos _bytes_ na rede. Este identificador é gerado a partir do nome do vídeo, sendo um número de 64 bits. É de notar que é possível haver colisões de identificadores (estamos a falar de UUIDs), mas a probabilidade de tal acontecer é infinitamente baixa.
 
 A instância do `ffmpeg` é então criada com o seguinte comando:
 #figure(caption: [Comando para criação da instância do `ffmpeg`])[```bash
@@ -285,17 +273,16 @@ A instância do `ffmpeg` é então criada com o seguinte comando:
 
 A flag `-re` é usada para reproduzir o vídeo em tempo real, a flag `-stream_loop -1` é usada para repetir o vídeo indefinidamente, a flag `-i` é usada para indicar o caminho para o vídeo, `-c:v` é usado para indicar o codec de vídeo, `-b:v` é usado para indicar a _bitrate_ do vídeo, `-c:a` é usado para indicar o codec de áudio e `-f` é usado para indicar o formato de saída.
 
-É de notar que o comando `ffmpeg` tem vários parâmetros:
+O comando possui ainda vários parâmetros alteráveis:
 - `<video_path>` é o caminho para o ficheiro do vídeo a ser transmitido;
 - `<codec_video>` é o codec de vídeo a ser usado;
 - `<send_to_path>` é o caminho para onde o vídeo é enviado.
 
 O codec do vídeo é automaticamente detetado pelo programa, onde é sempre escolhido um codec `h264` que use sempre aceleração de hardware, caso esteja disponível. O programa executa o comando `ffmpeg -encoders` para obter a lista de codecs disponíveis e escolhe o primeiro codec presente nesta lista: "hevc_videotoolbox" (aceleração macOS), "h264_nvenc" (aceleração NVIDIA), "hevc_amf" (aceleração AMD), "h264" (aceleração CPU), "libx264" (aceleração CPU).
 
-O `<send_to_path>` é o caminho para onde o vídeo é enviado. Este caminho será um _socket_ UDP que o servidor cria para receber os pacotes de streaming. Desta forma, o servidor recebe os pacotes de vídeo já particionados, para serem enviados via UDP, respeitando o MTU, não tendo de fazer trabalho para acumular _bytes_ do vídeo. A cada pacote recebido, o servidor envia o pacote encapsulado com a identificação da _stream_ para os _nodos_ que pediram a _stream_.
+O `<send_to_path>` é o caminho para onde o vídeo é enviado. Este caminho será um _socket_ UDP que o servidor cria para receber os pacotes de streaming. Desta forma, o servidor recebe os pacotes de vídeo já particionados, para serem enviados via UDP, respeitando o MTU da rede. A cada pacote recebido, o servidor envia o pacote encapsulado com a identificação da _stream_ para os _nodes_ que pediram a _stream_.
 
 == Múltiplos servidores
-
 A nossa arquitetura também possibilita a existência de múltiplos servidores. Cada servidor é responsável por um conjunto de vídeos, podendo ser o mesmo conjunto de vídeos que outro servidor ou não. Como cada _node_ tem a lista de vídeos que pode reproduzir, ao receber o pacote de _flood_ de um segundo servidor, apenas adiciona os vídeos desse servidor à sua lista de vídeos, e que pode reproduzir aquele vídeo a partir do _node_ que lhe enviou o pacote de _flood_.
 
 == Adição de vídeos em runtime
@@ -338,14 +325,13 @@ Uma vez que o grupo decidiu utilizar o protocolo de transporte UDP em praticamen
 
 Para tal, o grupo optou por implementar #link("https://github.com/chicoferreira/pessi-streamer/blob/main/common/src/reliable.rs")[uma abstração em cima do _socket_ UDP]. Esta abstração tem como noção a de pacotes _reliable_ e _unreliable_. Todas as entidades do sistema (exceto o _bootstrapper_) usam esta abstração para comunicação.
 
-Os pacotes _reliable_ são pacotes que são enviados e que o emissor espera uma resposta, um _Ack_. Caso não receba esse _Ack_ num tempo determinado #footnote[O valor determinado para este tempo foi de 100ms, para haver um bom equilíbrio entre rapidez de resposta e evitar uso desnecessário da rede.], o pacote é reenviado, até um número de tentativas #footnote[Valor determinado de 5 tentativas, pelas mesmas razões da escolha anterior.], onde caso esse número seja atingido, o pacote é considerado perdido e o emissor do pacote é notificado.
+Os pacotes _reliable_ são pacotes que são enviados e que o emissor espera uma resposta, um _Ack_. Caso não receba esse _Ack_ num tempo determinado #footnote[O valor determinado para este tempo foi de 100ms, para haver um bom equilíbrio entre rapidez de resposta e congestionamento da rede.], o pacote é reenviado, até um número de tentativas #footnote[Valor determinado de 5 tentativas, pelas mesmas razões da escolha anterior. Mas configurável.], onde caso esse número seja atingido, o pacote é considerado perdido e o emissor do pacote é notificado.
 
-Os pacotes _unreliable_ são pacotes que são enviados e esquecidos, como é no UDP.
+Os pacotes _unreliable_ são pacotes que são simplesmente enviados, sem qualquer garantia, como é no caso do UDP.
 
-Todos os pacotes, exceto os pacotes de vídeo, são enviados de forma _reliable_. Como o protocolo _mpeg-ts_ é resiliente a falhas, não é necessário retransmitir pacotes de vídeo, sendo assim então enviados de forma _unreliable_.
+Todos os pacotes, exceto os pacotes de vídeo, são enviados de forma _reliable_. Como o protocolo MPEG-TS é resiliente a falhas, não é necessário retransmitir pacotes de vídeo, sendo estes enviados de forma _unreliable_.
 
 == Algoritmo de Escolha
-
 Tanto os clientes quanto os _nodes_ precisam considerar qual é o melhor _node_ para contactar ao solicitar os pacotes de uma _stream_.
 
 Para isso, é levado em conta o RTT entre os vários vizinhos (ou _point of presence_ no caso do cliente). Caso existam falhas na rede, como o pacote será retransmitido, o RTT será maior, e então o vizinho dificilmente será escolhido como melhor nó.
@@ -356,22 +342,20 @@ Desta forma, nos _nodes_ o melhor _node_ é escolhido a partir destes critérios
 + Se o número de _hops_ for igual, escolher o que tem menos vídeos pedidos atualmente;
 + Se o número de vídeos pedidos for igual, escolher o que tem menos _streams_ que pode enviar.
 
-No caso dos clientes, é o melhor _point of presence_ é escolhido a partir dos mesmos críterios, excluindo o passo 3. já que os clientes não têm acesso ao número de _hops_ que um _PoP_ tem até ao servidor.
+No caso dos clientes, é o melhor _point of presence_ é escolhido a partir dos mesmos críterios, excluindo o passo 3. já que os clientes não têm acesso ao número de _hops_ que um _point of presence_ tem até ao servidor.
 
 = Recuperação de Falhas
-
 Tanto o cliente como os _nodes_ rodam uma tarefa de provisionamento de conexões.
 
 Nos _nodes_, quando um vizinho lhe envia um pacote de _flood_, esse vizinho é considerado como um _node parent_. A partir deste ponto, é esperado que o _node parent_ lhe envie periodicamente pacotes de _flood_.
 
-Caso um _node_ não receba um pacote de _flood_ de um _node parent_ durante um intervalo de tempo determinado #footnote[Valor determinado de 3 segundos, um equilíbrio entre deteção rápida para evitar interrupções nos vídeos do cliente e não marcar _nodes_ não suficientemente lentos como mortos.], o _node_ considera o _node parent_ como `Unresponsive`, e são feitos os procedimentos esclarecidos nas secções seguintes, de acordo com o tipo de mortes.
+Caso um _node_ não receba um pacote de _flood_ de um _node parent_ durante um intervalo de tempo determinado #footnote[Valor determinado de 3 segundos, um equilíbrio entre deteção rápida para evitar interrupções nos vídeos do cliente e não marcar _nodes_ não suficientemente lentos como mortos.], o _node_ considera o _node parent_ como irresponsivo, e são feitos os procedimentos esclarecidos nas secções seguintes, de acordo com o tipo de mortes.
 
-Caso um _node_ não faça _Ack_ do pacote de _flood_ enviado, o _node_ que enviou o pacote também considera o _node_ que não fez _Ack_ como `Unresponsive`.
+Caso um _node_ não faça _Ack_ do pacote de _flood_ enviado, o _node_ que enviou o pacote também considera o _node_ que não fez _Ack_ como irresponsivo.
 
 Caso um _node_ não receba um pacote de vídeo que era suposto receber, em 500ms, tal como o cliente, o _node_ reenvia o pacote de pedido de vídeo. Isto serve para garantir que, caso o _node_ que lhe está a enviar o vídeo tenha reiniciado ou perdido o estado, o _node_ que pediu o vídeo consiga recuperar o estado.
 
 == Mortes
-
 Para exemplificar o procedimento em caso de mortes simples e mortes complexas, usaremos esta tipologia como exemplo:
 
 #figure(image("assets/mortes.svg", width: 50%), caption: [Topologia de exemplo])
@@ -379,7 +363,7 @@ Para exemplificar o procedimento em caso de mortes simples e mortes complexas, u
 Nesta topologia, assume-se que o cliente $C_1$ está a pedir uma _stream_ ao servidor $S_1$ a partir dos _nodes_ $N_4 -> N_3 -> N_1 -> S_1$.
 
 === Mortes Simples
-Assumindo agora que o $N_3$ morre, o $N_4$ vai detetar que o $N_3$ não lhe está a enviar pacotes de _flood_ e considera-o como `Unresponsive`. O $N_4$ vai então pedir ao $N_2$ para lhe enviar a _stream_ que estava a receber do $N_3$. O $N_2$ vai então pedir ao $N_1$ para lhe enviar a _stream_ que estava a receber do $N_3$. O $N_1$ como já estava a receber a _stream_ do $S$, vai então começar a enviar a _stream_ para o $N_2$, que vai enviar para o $N_4$, que vai enviar para o cliente. O $N_1$ também vai detetar que o $N_3$ não lhe está a enviar pacotes de _Ack_ para o pacote de _flood_, considera-o como `Unresponsive` e para de lhe enviar os pacotes de vídeo.
+Assumindo agora que o $N_3$ morre, o $N_4$ vai detetar que o $N_3$ não lhe está a enviar pacotes de _flood_ e considera-o como irresponsivo. O $N_4$ vai então pedir ao $N_2$ para lhe enviar a _stream_ que estava a receber do $N_3$. Da mesma forma, o $N_2$ vai, depois, pedir ao $N_1$ para lhe enviar a _stream_ que estava a receber do $N_3$. O $N_1$ como já estava a receber a _stream_ do $S_1$, vai então começar a enviar a _stream_ para o $N_2$, que vai enviar para o $N_4$, que vai enviar para o cliente. O $N_1$ também vai detetar que o $N_3$ não lhe está a enviar pacotes de _Ack_ para o pacote de _flood_, considera-o como irresponsivo e pára de lhe enviar os pacotes de vídeo.
 
 === Mortes Catastróficas
 Partindo do estado final mostrado na secção anterior, onde o $N_3$ está morto, podemos agora matar o $N_2$ para simular uma morte complexa.
