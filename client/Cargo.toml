@@ -13,6 +13,6 @@ clap = { version = "4.5.20", features = ["derive"] }
 circular-buffer = "0.1.9"
 dashmap = "6.1.0"
 egui = "0.29.1"
-eframe = "0.29.1"
+eframe = "0.30.0"
 egui_extras = "0.29.1"
 bytefmt = "0.1.7"
