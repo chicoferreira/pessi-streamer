@@ -10,5 +10,5 @@ log = "0.4.22"
 anyhow = "1.0.92"
 tokio = { version = "1.41.0", features = ["full"] }
 clap = { version = "4.5.20", features = ["derive"] }
-circular-buffer = "0.1.9"
+circular-buffer = "1.0.0"
 dashmap = "6.1.0"
