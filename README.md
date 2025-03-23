@@ -1,7 +1,7 @@
 # Pessi Streamer
 
-As sequel of [Pessi Torrent](https://github.com/ruilopesm/pessi-torrent-cc), **Pessi Streamer** is a distributed system
-designed for real-time video streaming over an overlay network.
+As a sequel of [Pessi Torrent](https://github.com/ruilopesm/pessi-torrent-cc), **Pessi Streamer** is a distributed
+system designed for real-time video streaming over an overlay network.
 It enables clients to watch videos from streaming servers through a network of nodes.
 
 ![](report/src/assets/arquitetura.png)
@@ -62,7 +62,7 @@ server/node connects to it, sends a list of its neighbors and immediately discon
     - Forms the backbone of the distribution network, routing video packets and managing client subscriptions.
 
 - **Server** ([server/src/server.rs](server/src/server.rs), [server/src/video.rs](server/src/video.rs)):
-    - Encodes and streams video content, broadcasting packets to subscribed nodes and sending periodic flood
+    - Encodes and stream video content, broadcasting packets to subscribed nodes and sending periodic flood
       packets for network monitoring.
 
 - **Client** ([client/src/client.rs](client/src/client.rs), [client/src/ui.rs](client/src/ui.rs)):
@@ -86,7 +86,7 @@ server/node connects to it, sends a list of its neighbors and immediately discon
 
 - Install [Rust](https://www.rust-lang.org/tools/install).
 - Install [MPV](https://mpv.io/) or [FFplay (via FFmpeg)](https://ffmpeg.org/ffplay.html) for the client.
-- The server should automatically install FFmpeg if it couldn't be find.
+- The server should automatically install FFmpeg if it couldn't be found.
 
 ### Setup
 
@@ -123,11 +123,11 @@ server/node connects to it, sends a list of its neighbors and immediately discon
 
 - Connections lack encryption, leaving data exposed, and the system relies heavily on trusting IPs in the UDP packet
   header, which can be easily spoofed.
-- The Rust code could also be improved, it includes unnecessary cloning in some areas, which could be optimized.
-  Nevertheless, the system will be first limited by the video decoding/encoding capabilities of the server.
+- The Rust code could also be improved; it includes unnecessary cloning in some areas, which could be optimized.
+  Nevertheless, the main bottleneck should be the video decoding/encoding capabilities of the server.
 
 ## Notes
 
 This project was created for educational purposes as part of a school assignment in the "Engenharia de Serviços em Rede"
-course. It showcases distributed systems concepts, including overlay networks, real-time streaming, and fault tolerance.
-For further details, although in Portuguese, refer to the project report in [report/report.pdf](report/report.pdf).
+course. For further details, although in Portuguese, refer to the project report
+in [report/report.pdf](report/report.pdf).
