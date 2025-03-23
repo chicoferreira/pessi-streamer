@@ -1,6 +1,7 @@
 # Pessi Streamer
 
-Pessi Streamer is a distributed system designed for real-time video streaming over an overlay network.
+As sequel of [Pessi Torrent](https://github.com/ruilopesm/pessi-torrent-cc), **Pessi Streamer** is a distributed system
+designed for real-time video streaming over an overlay network.
 It enables clients to watch videos from streaming servers through a network of nodes.
 
 ![](report/src/assets/arquitetura.png)
@@ -53,7 +54,8 @@ server/node connects to it, sends a list of its neighbors and immediately discon
 
 ## Code Components
 
-- **Bootstrapper** ([bootstrapper/src/bootstrapper.rs](bootstrapper/src/bootstrapper.rs), [topologies/neighbours.toml](topologies/neighbours.toml)):
+- **Bootstrapper
+  ** ([bootstrapper/src/bootstrapper.rs](bootstrapper/src/bootstrapper.rs), [topologies/neighbours.toml](topologies/neighbours.toml)):
     - Initializes the network topology by distributing neighbor lists and IDs via TCP.
 
 - **Node** ([node/src/handle.rs](node/src/handle.rs)):
