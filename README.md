@@ -53,21 +53,21 @@ server/node connects to it, sends a list of its neighbors and immediately discon
 
 ## Code Components
 
-- **Bootstrapper** ([bootstrapper/src/bootstrapper.rs](), [topologies/neighbours.toml]()):
+- **Bootstrapper** ([bootstrapper/src/bootstrapper.rs](bootstrapper/src/bootstrapper.rs), [topologies/neighbours.toml](topologies/neighbours.toml)):
     - Initializes the network topology by distributing neighbor lists and IDs via TCP.
 
-- **Node** ([node/src/handle.rs]()):
+- **Node** ([node/src/handle.rs](node/src/handle.rs)):
     - Forms the backbone of the distribution network, routing video packets and managing client subscriptions.
 
-- **Server** ([server/src/server.rs](), [server/src/video.rs]()):
+- **Server** ([server/src/server.rs](server/src/server.rs), [server/src/video.rs](server/src/video.rs)):
     - Encodes and streams video content, broadcasting packets to subscribed nodes and sending periodic flood
       packets for network monitoring.
 
-- **Client** ([client/src/client.rs](), [client/src/ui.rs]()):
+- **Client** ([client/src/client.rs](client/src/client.rs), [client/src/ui.rs](client/src/ui.rs)):
     - Provides a GUI for users to connect to nodes, select videos, and watch streams in real-time using
       players like MPV or FFplay (the client can choose the player via flags).
 
-- **Common** ([common/src/packet.rs](), [common/src/reliable.rs]()):
+- **Common** ([common/src/packet.rs](common/src/packet.rs), [common/src/reliable.rs](common/src/reliable.rs)):
     - Contains shared utilities, including packet definitions and a "reliable UDP" implementation.
 
 ## Technology Stack
@@ -128,4 +128,4 @@ server/node connects to it, sends a list of its neighbors and immediately discon
 
 This project was created for educational purposes as part of a school assignment in the "Engenharia de Serviços em Rede"
 course. It showcases distributed systems concepts, including overlay networks, real-time streaming, and fault tolerance.
-For further details, although in Portuguese, refer to the project report in [report/report.pdf]().
+For further details, although in Portuguese, refer to the project report in [report/report.pdf](report/report.pdf).
